@@ -202,6 +202,8 @@ pytest -m 'not slow'        # skip the timing guards
 python examples/make_samples.py
 ```
 
+Releases are cut by pushing a tag; see [RELEASING.md](RELEASING.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

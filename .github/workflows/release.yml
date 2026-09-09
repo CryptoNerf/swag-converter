@@ -51,6 +51,10 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    # Off until PyPI has been told to trust this workflow; see RELEASING.md.
+    # Set the repository variable PUBLISH_TO_PYPI to "true" to switch it on,
+    # so a tag never fails here just because the one-time setup is pending.
+    if: vars.PUBLISH_TO_PYPI == 'true'
     environment: pypi
     permissions:
       id-token: write  # mints the short-lived token PyPI verifies

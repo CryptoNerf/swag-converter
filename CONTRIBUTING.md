@@ -21,6 +21,10 @@ pytest
   exist because a photograph once took 22 minutes and collapsed to two shapes;
   that class of regression is easy to reintroduce.
 
+## Releasing
+
+Tag it and the workflow does the rest — see [RELEASING.md](RELEASING.md).
+
 ## Where things live
 
 | file | responsibility |
