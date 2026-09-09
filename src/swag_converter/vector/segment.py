@@ -27,7 +27,7 @@ from PIL import Image
 from scipy import ndimage
 from skimage import color as skcolor
 
-from .paint import Paint, fit_paint
+from .paint import Paint, fit_paint, sample_for_fit
 
 
 _RESAMPLE = {
@@ -448,14 +448,24 @@ def merge_regions(
     components = region_label_image(segmentation)
     graph = _adjacency(segmentation, components)
     active: dict[int, Region] = {region.label: region for region in segmentation.regions}
-    for region in active.values():
-        region.paint = fit_paint(
-            segmentation.coords[region.pixels],
-            segmentation.colors[region.pixels],
-            segmentation.alpha[region.pixels],
+
+    def fit(pixels: np.ndarray, seed: int) -> Paint:
+        # Narrow the index array first: gathering the whole union only to have
+        # ``fit_paint`` discard all but a few thousand rows is what made the
+        # merge loop quadratic in pixels rather than in edges.
+        picked = sample_for_fit(len(pixels), settings, seed)
+        if picked is not None:
+            pixels = pixels[picked]
+        return fit_paint(
+            segmentation.coords[pixels],
+            segmentation.colors[pixels],
+            segmentation.alpha[pixels],
             settings,
-            seed=region.label,
+            seed=seed,
         )
+
+    for region in active.values():
+        region.paint = fit(region.pixels, region.label)
 
     pending = sorted({float(value) for value in thresholds})
     # Bumped whenever a region changes, so stale heap entries are detectable.
@@ -464,13 +474,7 @@ def merge_regions(
     def cost(first: int, second: int) -> tuple[float, Paint]:
         left, right = active[first], active[second]
         pixels = np.concatenate([left.pixels, right.pixels])
-        paint = fit_paint(
-            segmentation.coords[pixels],
-            segmentation.colors[pixels],
-            segmentation.alpha[pixels],
-            settings,
-            seed=first * 7919 + second,
-        )
+        paint = fit(pixels, first * 7919 + second)
         total = left.area + right.area
         baseline = (left.paint.residual * left.area + right.paint.residual * right.area) / max(total, 1)
         penalty = 0.0 if paint.residual <= max_residual else (paint.residual - max_residual) * 100.0

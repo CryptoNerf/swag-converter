@@ -46,7 +46,7 @@ pip install swag-converter
 From source:
 
 ```bash
-git clone https://github.com/nerf-file/swag-converter
+git clone https://github.com/CryptoNerf/swag-converter
 cd swag-converter
 pip install -e '.[dev]'
 ```

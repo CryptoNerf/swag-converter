@@ -119,3 +119,20 @@ def test_quality_tiers_order_the_tolerances() -> None:
 def test_unknown_preset_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unknown preset"):
         build("nope")
+
+
+def test_string_paths_are_accepted(tmp_path: Path) -> None:
+    """The README calls convert() with plain strings, as callers reasonably do."""
+    source = _write(tmp_path, _shaded_disc())
+    destination = tmp_path / "out.svg"
+    result = convert(str(source), str(destination), measure=False)
+    assert destination.exists()
+    assert result.destination == destination
+    assert result.source == source
+
+
+def test_string_source_without_destination_defaults_beside_it(tmp_path: Path) -> None:
+    source = _write(tmp_path, _shaded_disc())
+    result = convert(str(source), measure=False)
+    assert result.destination == source.with_suffix(".svg")
+    assert result.destination.exists()

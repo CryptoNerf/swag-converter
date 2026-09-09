@@ -52,8 +52,8 @@ def _denoise(pixels: np.ndarray, size: int) -> np.ndarray:
 
 
 def convert(
-    source: Path,
-    destination: Path | None = None,
+    source: Path | str,
+    destination: Path | str | None = None,
     preset: str = "auto",
     quality: str = "balanced",
     max_edge: int = 1024,
@@ -65,6 +65,10 @@ def convert(
     """Trace one raster file into an SVG document."""
     started = time.perf_counter()
     step = progress or (lambda _label: None)
+
+    # Callers reasonably pass plain strings; everything below wants real paths.
+    source = Path(source)
+    destination = Path(destination) if destination is not None else None
 
     step("reading")
     image: LoadedImage = load(source, max_edge=max_edge, remove_background=remove_background)

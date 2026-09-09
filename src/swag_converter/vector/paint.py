@@ -60,6 +60,17 @@ def _sample(indices_count: int, limit: int, seed: int) -> np.ndarray | None:
     return generator.choice(indices_count, size=limit, replace=False)
 
 
+def sample_for_fit(count: int, settings: dict[str, Any], seed: int) -> np.ndarray | None:
+    """The indices ``fit_paint`` would keep, so callers can gather only those.
+
+    Fitting subsamples to ``fit_sample_limit`` as its first act anyway.  Doing
+    the pick before the gather lets the merge loop copy a few thousand pixels
+    per candidate instead of every pixel in the union.  Same count, same seed,
+    so the subset -- and therefore the fit -- is identical.
+    """
+    return _sample(count, int(settings.get("fit_sample_limit", 4000)), seed)
+
+
 def _stops_from_parameter(
     parameter: np.ndarray, colors: np.ndarray, alpha: np.ndarray, count: int, low: float, high: float
 ) -> list[tuple[float, np.ndarray, float]]:

@@ -37,8 +37,8 @@ swag = "swag_converter.cli:main"
 swag-converter = "swag_converter.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/nerf-file/swag-converter"
-Issues = "https://github.com/nerf-file/swag-converter/issues"
+Homepage = "https://github.com/CryptoNerf/swag-converter"
+Issues = "https://github.com/CryptoNerf/swag-converter/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
