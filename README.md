@@ -96,7 +96,7 @@ it top to bottom:
 | `source` | the file it read, its pixel size and weight on disk |
 | `content` | which preset `auto` picked, and the measurements behind the choice |
 | `shapes` | how many paths, gradients and Bézier nodes the SVG contains |
-| `similarity` | how closely the SVG re-renders to the original, 100% being pixel-identical |
+| `similarity` | how closely the SVG re-renders to the original, 100% being pixel-identical — reads `not measured` until you install the optional CairoSVG above |
 | `output` | where the SVG went, how big it is, how long it took |
 
 A `similarity` in the nineties means the vector is a faithful stand-in for the
