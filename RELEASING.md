@@ -7,7 +7,11 @@ repository.
 
 ## One-time: let PyPI trust this workflow
 
-PyPI can verify that an upload really came from this repository's release
+**This is already done** — it was set up for v0.1.0 and needs no attention
+unless the repository is renamed or moved. What follows is the record of what
+was configured, and what to redo if it ever breaks.
+
+PyPI verifies that an upload really came from this repository's release
 workflow, which is why there is no token to leak. It has to be told once, and
 only the project owner can do it.
 
@@ -25,16 +29,17 @@ only the project owner can do it.
    | Environment name | `pypi` |
 
 4. In this repository, go to **Settings → Secrets and variables → Actions →
-   Variables** and add `PUBLISH_TO_PYPI` with the value `true`.
+   Variables** and add a *repository* variable named `PUBLISH_TO_PYPI` with the
+   value `true` — the name is `PUBLISH_TO_PYPI`, not `NAME`.
 
-Step 4 is the switch: until it is set, tagging still builds the package and
-attaches it to the release, it just skips the upload. That way a tag never
-fails merely because step 3 has not happened yet.
+Step 4 doubles as a kill switch: with the variable set to anything else,
+tagging still builds the package and attaches it to the GitHub release, it just
+skips the PyPI upload.
 
-The environment name in step 3 must match `environment: pypi` in the workflow.
-Adding a **pypi** environment under **Settings → Environments** is optional,
-but it is where you would add a required reviewer if you ever want a human to
-approve uploads.
+The environment name in step 3 must match `environment: pypi` in the workflow,
+and that environment exists under **Settings → Environments**. It carries no
+protection rules; that is where you would add a required reviewer if you ever
+want a human to approve uploads.
 
 ## Cutting a release
 
