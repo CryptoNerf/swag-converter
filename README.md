@@ -12,11 +12,11 @@ swag logo.png
 sw(a)g.converter   raster → vector
 ────────────────────────────────────────────────────
 ╭──────────────────────────────────────────────────────────────╮
-│      source  logo.png  512×512  84.2 KB                      │
-│     content  icon  (texture 0.36, flat 77%, 449 colours)     │
-│      shapes  45 regions  ·  19 gradients  ·  1,158 nodes     │
-│  similarity  96.4%                                           │
-│      output  logo.svg   29.6 KB  in 6.1s                     │
+│      source  logo.png  320×320  46.4 KB                      │
+│     content  icon  (texture 0.00, flat 100%, 334 colours)    │
+│      shapes  9 regions  ·  9 gradients  ·  1,935 nodes       │
+│  similarity  98.2%                                           │
+│      output  logo.svg   36.9 KB  in 1.6s                     │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
@@ -43,7 +43,29 @@ This one does two things differently:
 pip install swag-converter
 ```
 
-From source:
+Python 3.10 or newer is the only prerequisite; that command pulls in everything
+else and puts a `swag` command on your PATH. Check it landed:
+
+```bash
+swag --version
+```
+
+<details>
+<summary>Other ways to install</summary>
+
+Isolated from your other packages, via [pipx](https://pipx.pypa.io):
+
+```bash
+pipx install swag-converter
+```
+
+Straight from a release, no PyPI involved:
+
+```bash
+pip install https://github.com/CryptoNerf/swag-converter/releases/download/v0.1.0/swag_converter-0.1.0-py3-none-any.whl
+```
+
+From a clone, for hacking on it:
 
 ```bash
 git clone https://github.com/CryptoNerf/swag-converter
@@ -51,9 +73,38 @@ cd swag-converter
 pip install -e '.[dev]'
 ```
 
-Python 3.10+. The similarity score needs [CairoSVG](https://cairosvg.org)
-(`pip install 'swag-converter[quality]'`, plus `brew install cairo` on macOS);
-conversion works fine without it.
+</details>
+
+The similarity score is the one optional extra: it needs
+[CairoSVG](https://cairosvg.org), so `pip install 'swag-converter[quality]'`
+(plus `brew install cairo` on macOS). Without it conversion works exactly the
+same and the score reads `not measured`.
+
+## Your first conversion
+
+Point it at any image. There is nothing to configure:
+
+```bash
+swag logo.png
+```
+
+That writes `logo.svg` next to the original and prints the report above. Reading
+it top to bottom:
+
+| line | what it tells you |
+| --- | --- |
+| `source` | the file it read, its pixel size and weight on disk |
+| `content` | which preset `auto` picked, and the measurements behind the choice |
+| `shapes` | how many paths, gradients and Bézier nodes the SVG contains |
+| `similarity` | how closely the SVG re-renders to the original, 100% being pixel-identical |
+| `output` | where the SVG went, how big it is, how long it took |
+
+A `similarity` in the nineties means the vector is a faithful stand-in for the
+original. If it comes out low, the image is probably photographic — see
+[Photographs, honestly](#photographs-honestly).
+
+Nothing is ever overwritten silently except a `.svg` of the same name, and no
+file leaves your machine.
 
 ## Usage
 

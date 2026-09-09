@@ -59,8 +59,23 @@ def test_a_broken_file_does_not_stop_the_batch(tmp_path: Path) -> None:
     _image(tmp_path, "good.png")
     (tmp_path / "bad.png").write_bytes(b"not an image at all")
     out = tmp_path / "out"
-    assert main([str(tmp_path), "--out", str(out), "--json", "--no-measure"]) == 0
+    # The batch carries on past the bad file...
+    status = main([str(tmp_path), "--out", str(out), "--json", "--no-measure"])
     assert (out / "good.svg").exists()
+    # ...but still reports failure, so `swag icons/ && deploy` stops.
+    assert status == 1
+
+
+def test_a_clean_batch_exits_zero(tmp_path: Path) -> None:
+    _image(tmp_path, "good.png")
+    out = tmp_path / "out"
+    assert main([str(tmp_path), "--out", str(out), "--json", "--no-measure"]) == 0
+
+
+def test_bare_invocation_shows_help(capsys: pytest.CaptureFixture) -> None:
+    """Typing just `swag` should teach the command, not reject it."""
+    assert main([]) == 2
+    assert "usage: swag" in capsys.readouterr().out
 
 
 def test_preset_and_quality_choices_are_validated() -> None:

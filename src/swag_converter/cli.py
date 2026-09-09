@@ -28,7 +28,7 @@ def _parser() -> argparse.ArgumentParser:
                "  swag art/ --out svg/ --workers 8",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("inputs", nargs="+", type=Path, help="Image files or directories")
+    parser.add_argument("inputs", nargs="*", type=Path, help="Image files or directories")
     parser.add_argument("-o", "--out", type=Path, help="Output directory (default: alongside each input)")
     parser.add_argument("-p", "--preset", default="auto", choices=["auto", *sorted(PRESETS)],
                         help="Tracing preset (default: auto-detect from content)")
@@ -113,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     from . import ui
 
     console = ui.console(quiet=args.quiet or args.json)
+    if not args.inputs:
+        _parser().print_help()
+        return 2
     sources = _collect(args.inputs)
     if not sources:
         ui.failure(console, "No images found.",
@@ -162,7 +165,9 @@ def main(argv: list[str] | None = None) -> int:
     for path, reason in failures:
         if args.quiet:
             print(f"{path}: {reason}", file=sys.stderr)
-    return 1 if failures and not results else 0
+    # Any failure is a failure: a batch that half-worked must not look like
+    # success to `swag icons/ && deploy`.
+    return 1 if failures else 0
 
 
 def _run_serial(jobs: list[dict[str, Any]], console: Any, args: Any):
