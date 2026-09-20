@@ -228,7 +228,7 @@ def fit_paint(
     """Pick the cheapest paint model that explains the region's pixels."""
     max_stops = int(settings.get("gradient_stops", 5))
     flat_tolerance = float(settings.get("flat_tolerance", 2.0))
-    gradient_gain = float(settings.get("gradient_gain", 0.55))
+    gradient_gain = float(settings.get("gradient_gain", 1.0))
     stop_prune = float(settings.get("stop_prune_tolerance", 1.4))
     limit = int(settings.get("fit_sample_limit", 4000))
 
@@ -302,10 +302,56 @@ def fit_paint(
 
     if not candidates:
         return best
-    # A gradient costs a <defs> entry and a paint-server reference, so it has
-    # to beat the flat fill by a clear margin rather than by a hair.
+    # A gradient costs a <defs> entry and a paint-server reference, so a
+    # margin under 1 makes it earn that.  At the default of 1 it only has to
+    # be better than the flat fill: measured over a mixed corpus, demanding a
+    # 45% improvement left shading as flat patches on every photograph and
+    # cost more in SSIM than the defs ever cost in bytes.  ``poster`` still
+    # tightens it, because flat is the point there.
     cheapest = min(candidates, key=lambda candidate: candidate.residual)
     return cheapest if cheapest.residual < flat_residual * gradient_gain else best
+
+
+def paint_offsets(paint: Paint, coords: np.ndarray) -> np.ndarray | None:
+    """Where ``coords`` fall on a gradient's ramp, as offsets in [0, 1]."""
+    geometry = paint.geometry
+    if paint.kind == "linear":
+        start = np.array([geometry["x1"], geometry["y1"]])
+        end = np.array([geometry["x2"], geometry["y2"]])
+        axis = end - start
+        length = float(axis @ axis)
+        if length < 1e-12:
+            return None
+        return np.clip(((coords - start) @ axis) / length, 0.0, 1.0)
+    if paint.kind == "radial":
+        centre = np.array([geometry["cx"], geometry["cy"]])
+        outer = float(geometry["r"])
+        if outer < 1e-9:
+            return None
+        return np.clip(np.linalg.norm(coords - centre, axis=1) / outer, 0.0, 1.0)
+    return None
+
+
+def paint_residual(
+    paint: Paint, coords: np.ndarray, colors: np.ndarray, alpha: np.ndarray, alpha_weight: float
+) -> float:
+    """How badly ``paint`` explains these pixels, on fit_paint's own scale.
+
+    ``fit_paint`` only reports the error over the pixels it was fitted to.
+    Asking the same question about someone else's pixels is what lets the
+    merge loop see the damage a join does to each side separately.
+    """
+    if paint.kind == "flat":
+        color = paint.color if paint.color is not None else np.zeros(3)
+        predicted_alpha = paint.opacity
+    else:
+        offsets = paint_offsets(paint, coords)
+        if offsets is None or not paint.stops:
+            return float("inf")
+        color = _evaluate_stops(paint.stops, offsets)
+        predicted_alpha = _evaluate_stop_alpha(paint.stops, offsets)
+    distance = perceptual_distance(colors, color if color.ndim > 1 else color[None, :])
+    return float(distance.mean()) + _alpha_error(alpha, predicted_alpha, alpha_weight)
 
 
 def paint_definition(paint: Paint, identifier: str) -> str | None:

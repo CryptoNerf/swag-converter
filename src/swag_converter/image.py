@@ -85,6 +85,10 @@ def load(
     )
 
 
+#: Above this many free-floating islands, a "backdrop" is really content.
+_MAX_BACKDROP_ISLANDS = 32
+
+
 def _drop_flat_background(pixels: np.ndarray, tolerance: float) -> bool:
     """Clear a uniform border colour to transparent, edge-connected only.
 
@@ -113,5 +117,17 @@ def _drop_flat_background(pixels: np.ndarray, tolerance: float) -> bool:
     covered = float(background.mean())
     if covered < 0.02 or covered > 0.97:
         return False  # nothing to gain, or it would erase the whole picture
+
+    # A studio backdrop holds the subject and little else.  If clearing it
+    # would strand hundreds of specks in mid-air, those specks are content —
+    # stars, film grain, confetti — and the flat colour between them is the
+    # photograph's own background, not a sheet of paper behind it.  Dropping
+    # it there turns one dark sky into thousands of islands to trace.
+    islands, island_count = ndimage.label(~background)
+    touching = set(islands[0]) | set(islands[-1]) | set(islands[:, 0]) | set(islands[:, -1])
+    touching.discard(0)
+    if island_count - len(touching) > _MAX_BACKDROP_ISLANDS:
+        return False
+
     pixels[background, 3] = 0
     return True

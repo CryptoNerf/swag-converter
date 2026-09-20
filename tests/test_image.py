@@ -86,3 +86,30 @@ def test_exif_orientation_is_applied(tmp_path: Path) -> None:
     loaded = load(path, remove_background="keep")
     # A 40x20 image tagged "rotate 90" must come back as 20x40.
     assert (loaded.width, loaded.height) == (20, 40)
+
+
+def test_a_starfield_keeps_its_sky(tmp_path: Path) -> None:
+    """Dark sky between stars is the photograph, not a backdrop to cut away.
+
+    Clearing it strands every star as its own island, which is how one
+    starfield turned into sixteen thousand regions and a 3 MB SVG.
+    """
+    generator = np.random.default_rng(7)
+    array = np.zeros((200, 200, 3), dtype=np.uint8)
+    array[:, :] = (4, 4, 10)
+    rows = generator.integers(0, 200, 900)
+    columns = generator.integers(0, 200, 900)
+    array[rows, columns] = (240, 240, 255)
+    loaded = load(_write(tmp_path, array, "stars.png", "RGB"), remove_background="always")
+    assert not loaded.background_removed
+    assert (loaded.pixels[:, :, 3] == 255).all()
+
+
+def test_a_subject_on_a_plain_backdrop_still_loses_it(tmp_path: Path) -> None:
+    """The guard must not cost us the case the feature exists for."""
+    array = np.full((200, 200, 3), 250, dtype=np.uint8)
+    array[60:150, 70:130] = (180, 40, 40)
+    loaded = load(_write(tmp_path, array, "product.png", "RGB"), remove_background="always")
+    assert loaded.background_removed
+    assert loaded.pixels[0, 0, 3] == 0
+    assert loaded.pixels[100, 100, 3] == 255

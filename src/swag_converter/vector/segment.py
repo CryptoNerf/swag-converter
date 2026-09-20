@@ -27,7 +27,7 @@ from PIL import Image
 from scipy import ndimage
 from skimage import color as skcolor
 
-from .paint import Paint, fit_paint, sample_for_fit
+from .paint import Paint, fit_paint, paint_residual, sample_for_fit
 
 
 _RESAMPLE = {
@@ -58,6 +58,10 @@ class Segmentation:
     alpha: np.ndarray
     regions: list[Region]
     translucent: bool
+    #: Per-pixel, in region-pixel order: False on the anti-aliased band that
+    #: straddles a region boundary.  Fitting paint there reads the blend
+    #: between two regions as if it were the region's own shading.
+    interior: np.ndarray | None = None
 
     @property
     def inside_indices(self) -> np.ndarray:
@@ -303,6 +307,8 @@ def build_segmentation(rgba: np.ndarray, settings: dict[str, Any]) -> Segmentati
         label = len(regions)
         regions.append(Region(label=label, pixels=pixels, area=len(pixels), members={label}))
 
+    interior = _interior_mask(components, inside, scale)
+
     return Segmentation(
         scale=scale,
         width=width,
@@ -313,7 +319,26 @@ def build_segmentation(rgba: np.ndarray, settings: dict[str, Any]) -> Segmentati
         alpha=flat_alpha.astype(np.float64),
         regions=regions,
         translucent=translucent,
+        interior=interior,
     )
+
+
+def _interior_mask(components: np.ndarray, inside: np.ndarray, scale: int) -> np.ndarray:
+    """Mark the pixels far enough from a region boundary to be pure colour.
+
+    Where two regions meet, the source is anti-aliased: those pixels hold a
+    blend of both colours and belong to neither.  Fitting a region's paint
+    over them reads that blend as shading and answers a flat white counter
+    inside a letter with a grey gradient.  The band is the width of the
+    anti-aliasing, which the super-sampling grid has stretched by ``scale``.
+    """
+    edges = np.zeros(components.shape, dtype=bool)
+    edges[:, :-1] |= components[:, :-1] != components[:, 1:]
+    edges[:, 1:] |= components[:, :-1] != components[:, 1:]
+    edges[:-1, :] |= components[:-1, :] != components[1:, :]
+    edges[1:, :] |= components[:-1, :] != components[1:, :]
+    band = ndimage.binary_dilation(edges, iterations=max(1, int(scale)))
+    return ~band.ravel()[inside]
 
 
 def _component_adjacency(components: np.ndarray) -> dict[int, set[int]]:
@@ -449,7 +474,17 @@ def merge_regions(
     graph = _adjacency(segmentation, components)
     active: dict[int, Region] = {region.label: region for region in segmentation.regions}
 
+    interior = segmentation.interior
+    min_interior = max(16, int(settings.get("min_interior_px", 24)))
+
     def fit(pixels: np.ndarray, seed: int) -> Paint:
+        # Fit the colour on the region's own pixels, not on the blend with
+        # its neighbours; fall back when a region is all edge and has no
+        # interior left to speak of.
+        if interior is not None:
+            core = pixels[interior[pixels]]
+            if len(core) >= min_interior:
+                pixels = core
         # Narrow the index array first: gathering the whole union only to have
         # ``fit_paint`` discard all but a few thousand rows is what made the
         # merge loop quadratic in pixels rather than in edges.
@@ -471,14 +506,48 @@ def merge_regions(
     # Bumped whenever a region changes, so stale heap entries are detectable.
     version: dict[int, int] = {label: 0 for label in active}
 
+    harm_limit = max(64, int(settings.get("harm_sample_limit", 512)))
+    alpha_weight = float(settings.get("alpha_residual_weight", 90.0))
+
+    def harm_sample(region: Region) -> np.ndarray:
+        """A stable subset of a region's pixels for judging damage.
+
+        Interior pixels only, to match what the paint was fitted on; judging
+        the fit on the anti-aliased rim would compare it against colours no
+        paint was ever meant to reproduce.
+        """
+        pixels = region.pixels
+        if interior is not None:
+            core = pixels[interior[pixels]]
+            if len(core) >= min_interior:
+                pixels = core
+        if len(pixels) <= harm_limit:
+            return pixels
+        generator = np.random.default_rng(region.label * 6151 + len(pixels))
+        return pixels[generator.choice(len(pixels), harm_limit, replace=False)]
+
+    def harm(region: Region, joint: Paint) -> float:
+        """How much worse the joint paint explains this region than its own.
+
+        Measured on one sample so the two residuals are directly comparable;
+        an area-weighted mean over the union would divide a small region's
+        damage by the size of the region it is being folded into, which is
+        how four-pixel legs and eyes used to merge away for free.
+        """
+        pixels = harm_sample(region)
+        where = segmentation.coords[pixels]
+        colour = segmentation.colors[pixels]
+        opacity = segmentation.alpha[pixels]
+        own = paint_residual(region.paint, where, colour, opacity, alpha_weight)
+        return paint_residual(joint, where, colour, opacity, alpha_weight) - own
+
     def cost(first: int, second: int) -> tuple[float, Paint]:
         left, right = active[first], active[second]
         pixels = np.concatenate([left.pixels, right.pixels])
         paint = fit(pixels, first * 7919 + second)
-        total = left.area + right.area
-        baseline = (left.paint.residual * left.area + right.paint.residual * right.area) / max(total, 1)
+        damage = max(harm(left, paint), harm(right, paint))
         penalty = 0.0 if paint.residual <= max_residual else (paint.residual - max_residual) * 100.0
-        return paint.residual - baseline + penalty, paint
+        return damage + penalty, paint
 
     heap: list[tuple[float, int, int, int, int, int, Paint]] = []
     counter = itertools.count()

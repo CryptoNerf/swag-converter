@@ -9,3 +9,4 @@ dist/
 out/
 *.svg.bak
 .DS_Store
+testdataset/

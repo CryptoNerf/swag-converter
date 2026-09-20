@@ -14,9 +14,9 @@ sw(a)g.converter   raster → vector
 ╭──────────────────────────────────────────────────────────────╮
 │      source  logo.png  320×320  46.4 KB                      │
 │     content  icon  (texture 0.00, flat 100%, 334 colours)    │
-│      shapes  9 regions  ·  9 gradients  ·  1,935 nodes       │
+│      shapes  18 regions  ·  12 gradients  ·  2,071 nodes     │
 │  similarity  98.2%                                           │
-│      output  logo.svg   36.9 KB  in 1.6s                     │
+│      output  logo.svg   40.2 KB  in 1.9s                     │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
@@ -33,9 +33,18 @@ This one does two things differently:
   long as a single linear or radial gradient still explains them, and the
   gradient stops are sampled from the real pixels. A shaded sphere becomes one
   path with one gradient instead of twenty concentric slivers.
+- **A merge has to be harmless to both sides.** The cost of joining two
+  regions is how much worse the shared paint describes the worse-off one, not
+  how much it moves an average over their combined area. Averaging lets a
+  four-pixel eye disappear into a face for free, which is why tracers so often
+  return a portrait with no features.
 - **Alpha is respected.** The silhouette comes from the alpha channel alone, and
   edge pixels take their colour from the nearest solid neighbour, so a faint
   halo stays faint instead of turning into solid paint.
+- **Colour is read from a region's interior.** Where two regions meet the
+  source is anti-aliased, and those pixels belong to neither. Fitting across
+  them reads the blend as shading, which is how a flat white counter inside a
+  letter picks up a grey gradient.
 
 ## Install
 
@@ -192,6 +201,9 @@ anti-aliasing leaving hairline seams between them.
   a glow) cannot be represented.
 - Output is larger than the source PNG for detailed images. That is inherent:
   vector data at this fidelity costs more than a compressed bitmap.
+- Texture made of isolated single pixels — a star field, heavy film grain — is
+  not recoverable. The scene around it traces fine; the specks themselves
+  cannot become paths without one path each, so they go.
 
 ## Development
 

@@ -26,7 +26,7 @@ BASE: dict[str, Any] = {
     "min_regions": 2,
     "gradient_stops": 5,
     "flat_tolerance": 2.0,
-    "gradient_gain": 0.55,
+    "gradient_gain": 1.0,
     "stop_prune_tolerance": 1.4,
     "fit_sample_limit": 2500,
     "seam_overlap": 1,

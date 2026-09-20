@@ -136,3 +136,52 @@ def test_string_source_without_destination_defaults_beside_it(tmp_path: Path) ->
     result = convert(str(source), measure=False)
     assert result.destination == source.with_suffix(".svg")
     assert result.destination.exists()
+
+
+def _mark_on_a_field(size: int = 160) -> np.ndarray:
+    """A large pale field carrying one small, very dark mark."""
+    image = np.zeros((size, size, 4), dtype=np.uint8)
+    image[:, :, 3] = 255
+    image[:, :, :3] = 235
+    image[size // 2 : size // 2 + 8, size // 4 : size // 4 + 30] = (20, 20, 25, 255)
+    return image
+
+
+def test_a_small_dark_mark_survives_the_merge(tmp_path: Path) -> None:
+    """Area-weighted merge costs used to dissolve thin dark detail for free.
+
+    A thirty-by-eight mark against twenty-five thousand pale pixels barely
+    moves a mean residual, so legs, eyes and lettering merged away; the cost
+    is now what the join does to the worse-off side.
+    """
+    result = convert(_write(tmp_path, _mark_on_a_field()), tmp_path / "out.svg", measure=False)
+    text = result.destination.read_text(encoding="utf-8")
+    fills = re.findall(r'fill="#([0-9A-F]{6})"', text)
+    darkest = min(int(value[0:2], 16) + int(value[2:4], 16) + int(value[4:6], 16) for value in fills)
+    assert darkest < 200, f"the dark mark was merged away; darkest fill was #{min(fills)}"
+
+
+def test_a_flat_region_is_painted_flat(tmp_path: Path) -> None:
+    """Paint is fitted on a region's interior, not on its anti-aliased rim.
+
+    Fitting across the blend with a neighbour reads the edge as shading and
+    answers a uniform white counter inside a letter with a grey gradient.
+    """
+    size = 160
+    image = np.zeros((size, size, 4), dtype=np.uint8)
+    image[:, :, 3] = 255
+    image[:, :, :3] = 20
+    image[40:120, 40:120, :3] = 250
+    # Soften the border so the square carries a genuine anti-aliased edge.
+    source = Image.fromarray(image, "RGBA").resize((size * 2, size * 2), Image.BILINEAR)
+    source = source.resize((size, size), Image.BILINEAR)
+    path = tmp_path / "square.png"
+    source.save(path)
+
+    result = convert(path, tmp_path / "out.svg", measure=False)
+    rendered = np.asarray(Image.open(path).convert("RGB"), dtype=np.int16)
+    middle = rendered[70:90, 70:90]
+    assert middle.min() > 200  # the fixture really is a pale flat square
+    text = result.destination.read_text(encoding="utf-8")
+    pale = re.findall(r'fill="#(F[0-9A-F]{5})"', text)
+    assert pale, "the pale square lost its flat fill"
