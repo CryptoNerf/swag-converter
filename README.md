@@ -14,9 +14,9 @@ sw(a)g.converter   raster → vector
 ╭──────────────────────────────────────────────────────────────╮
 │      source  logo.png  320×320  46.4 KB                      │
 │     content  icon  (texture 0.00, flat 100%, 334 colours)    │
-│      shapes  18 regions  ·  12 gradients  ·  2,071 nodes     │
+│      shapes  18 regions  ·  12 gradients  ·  2,076 nodes     │
 │  similarity  98.2%                                           │
-│      output  logo.svg   40.2 KB  in 1.9s                     │
+│      output  logo.svg   40.2 KB  in 3.2s                     │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
@@ -129,7 +129,7 @@ swag *.png --json                     # machine-readable output
 | --- | --- |
 | `-o, --out DIR` | Write SVGs into `DIR` instead of beside each input |
 | `-p, --preset` | `auto` (default), `icon`, `illustration`, `photo`, `poster` |
-| `-q, --quality` | `fast`, `balanced` (default), `max` |
+| `-q, --quality` | `fast`, `balanced` (default), `max` — how much detail to keep |
 | `--max-edge PX` | Resize the longer edge before tracing (default 1024, `0` disables) |
 | `--background` | `auto` (default), `always`, `keep` — clear a flat backdrop |
 | `-j, --workers N` | Parallel workers for batches |
@@ -137,6 +137,21 @@ swag *.png --json                     # machine-readable output
 
 Input can be PNG, JPEG, WebP, GIF, BMP, TIFF, TGA, ICO, HEIC/AVIF — anything
 Pillow reads. EXIF rotation, grayscale, palette and CMYK all get normalised.
+
+## Quality
+
+`--quality` sets the region budget: how many regions the image may keep before
+the cheapest ones are absorbed. That budget is what decides whether texture
+reads as detail or as smear, and it is also what most of the run time buys.
+
+| tier | budget | on a 450×450 photograph |
+| --- | --- | --- |
+| `fast` | 0.35x | 384 regions, 323 KB, 14s |
+| `balanced` | 1x | 1,345 regions, 935 KB, 41s |
+| `max` | 2x | 2,923 regions, 1.7 MB, 71s |
+
+Flat artwork saturates well before `max` — there is no more detail to find, so
+the extra budget goes unused and costs nothing.
 
 ## Presets
 
@@ -159,9 +174,10 @@ stylisation in seconds rather than a faithful reproduction — expect something
 closer to a screen print than to the original. If you want fidelity from a
 photo, keep the raster.
 
-What it will **not** do is hang: a 3840×2160 photograph converts in about 25
-seconds because the working size is capped and the merge stage runs on a
-priority queue.
+What it will **not** do is hang: a 3840×2160 photograph converts in under two
+minutes, or half a minute at `--quality fast`, because the working size is
+capped, the region budget is fixed before tracing starts and the merge stage
+runs on a priority queue.
 
 ## Using it as a library
 
