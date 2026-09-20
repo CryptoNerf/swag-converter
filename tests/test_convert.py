@@ -106,7 +106,19 @@ def test_every_preset_runs(tmp_path: Path, preset: str) -> None:
 def test_photo_preset_keeps_a_region_floor() -> None:
     """Without a floor the merge collapsed a photograph to two shapes."""
     assert build("photo")["min_regions"] >= 24
-    assert build("photo")["denoise"] >= 2
+
+
+def test_photo_preset_budgets_for_texture() -> None:
+    """A photograph needs the room a flat icon does not.
+
+    The median filter this preset used to rely on is gone: absorbing the
+    least valuable regions discards grain, because grain is small *and*
+    low-contrast, where a median pass took the eyelashes with it.  What keeps
+    a textured image tractable now is the budget, so that is what is pinned.
+    """
+    photo = build("photo")
+    assert photo["max_initial_regions"] > build("icon")["max_initial_regions"]
+    assert photo["max_initial_regions"] <= 4000
 
 
 def test_quality_tiers_order_the_tolerances() -> None:

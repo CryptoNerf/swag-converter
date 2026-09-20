@@ -288,12 +288,21 @@ def build_segmentation(rgba: np.ndarray, settings: dict[str, Any]) -> Segmentati
     # Pick the speck threshold straight from the size distribution so the
     # count lands under the cap in a single absorption pass.
     max_initial = max(16, int(settings.get("max_initial_regions", 420)))
-    threshold = min_region
-    _, counts = np.unique(components.ravel()[inside], return_counts=True)
-    interior = np.sort(counts[1:] if (components.ravel()[inside] == 0).any() else counts)
-    if len(interior) > max_initial:
-        threshold = max(min_region, int(interior[len(interior) - max_initial]) + 1)
-    components = _absorb_small(components, features, inside, threshold, hi_height, hi_width)
+    components = _absorb_small(components, features, inside, min_region, max_initial, hi_height, hi_width)
+    # Specks absorb in chains, and a chain that grows past the floor stops
+    # being a speck, so the first pass can land well above the budget: a
+    # grainy photograph starts at six hundred thousand components and still
+    # holds fifteen thousand afterwards.  Charge the rest to the budget alone,
+    # which is cheap now that only thousands remain.
+    for _ in range(4):
+        surviving = components.ravel()[inside]
+        count = len(np.unique(surviving[surviving > 0]))
+        if count <= max_initial:
+            break
+        components = _absorb_small(components, features, inside, 0, max_initial, hi_height, hi_width)
+        after = components.ravel()[inside]
+        if len(np.unique(after[after > 0])) >= count:
+            break  # nothing left that can be folded anywhere
 
     coords_y, coords_x = np.divmod(np.flatnonzero(inside), hi_width)
     coords = np.column_stack([(coords_x + 0.5) / scale, (coords_y + 0.5) / scale]).astype(np.float64)
@@ -341,37 +350,87 @@ def _interior_mask(components: np.ndarray, inside: np.ndarray, scale: int) -> np
     return ~band.ravel()[inside]
 
 
-def _component_adjacency(components: np.ndarray) -> dict[int, set[int]]:
-    """Neighbour map for every labelled component, in two vectorised passes."""
-    graph: dict[int, set[int]] = {}
+def _component_edges(components: np.ndarray, top: int) -> tuple[np.ndarray, np.ndarray]:
+    """Unique touching pairs of labelled components, as two index arrays.
+
+    Deduplicating on a single integer key rather than on stacked rows: a
+    boundary repeats its pair once per pixel along it, and ``np.unique`` over
+    a 2-D array of several million rows costs more than the whole merge.
+    """
+    keys: list[np.ndarray] = []
     for first, second in ((components[:, :-1], components[:, 1:]), (components[:-1, :], components[1:, :])):
         differing = (first != second) & (first > 0) & (second > 0)
         if not differing.any():
             continue
-        pairs = np.unique(np.stack([first[differing], second[differing]], axis=1), axis=0)
-        for a, b in pairs:
-            graph.setdefault(int(a), set()).add(int(b))
-            graph.setdefault(int(b), set()).add(int(a))
+        low = np.minimum(first[differing], second[differing]).astype(np.int64)
+        high = np.maximum(first[differing], second[differing]).astype(np.int64)
+        keys.append(low * top + high)
+    if not keys:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    unique = np.unique(np.concatenate(keys))
+    return unique // top, unique % top
+
+
+def _neighbour_contrast(averages: np.ndarray, first: np.ndarray, second: np.ndarray, top: int) -> np.ndarray:
+    """For each component, the colour distance to its closest-coloured neighbour."""
+    nearest = np.full(top, np.inf, dtype=np.float64)
+    if len(first) == 0:
+        return nearest
+    distance = np.linalg.norm(averages[first] - averages[second], axis=1)
+    np.minimum.at(nearest, first, distance)
+    np.minimum.at(nearest, second, distance)
+    return nearest
+
+
+def _component_adjacency(
+    components: np.ndarray, edges: tuple[np.ndarray, np.ndarray] | None = None
+) -> dict[int, set[int]]:
+    """Neighbour map for every labelled component.
+
+    Callers that already have the deduplicated edge list pass it in; building
+    it twice is the single most expensive thing about a grainy photograph.
+    """
+    if edges is None:
+        edges = _component_edges(components, int(components.max()) + 1)
+    graph: dict[int, set[int]] = {}
+    for a, b in zip(edges[0].tolist(), edges[1].tolist()):
+        graph.setdefault(a, set()).add(b)
+        graph.setdefault(b, set()).add(a)
     return graph
 
 
 def _absorb_small(
-    components: np.ndarray, features: np.ndarray, inside: np.ndarray, min_region: int, height: int, width: int
+    components: np.ndarray,
+    features: np.ndarray,
+    inside: np.ndarray,
+    min_region: int,
+    max_initial: int,
+    height: int,
+    width: int,
 ) -> np.ndarray:
-    """Fold sub-threshold specks into the closest-coloured touching region."""
+    """Fold the least valuable components into the closest-coloured neighbour.
+
+    What a component is worth is what losing it would cost: its area times how
+    far its colour sits from the neighbour it would be folded into.  Ranking
+    by area alone spends the whole region budget on large bland patches and
+    discards the pupil, the eyelash and the vein in a petal — small, violently
+    contrasting, and the first things a viewer looks for.  Specks under
+    ``min_region`` go regardless; past that, the cheapest go until the count
+    fits ``max_initial``.
+    """
     flat = components.ravel()
     inside_components = flat[inside]
     identifiers, counts = np.unique(inside_components, return_counts=True)
     sizes = {int(identifier): int(count) for identifier, count in zip(identifiers, counts) if identifier > 0}
-    small = sorted((identifier for identifier, count in sizes.items() if count < min_region), key=lambda key: sizes[key])
-    if not small:
+    if not sizes:
         return components
-    graph = _component_adjacency(components)
+    top = int(inside_components.max()) + 1
+    edge_first, edge_second = _component_edges(components, top)
+    graph = _component_adjacency(components, (edge_first, edge_second))
     # One pass for every component mean.  Selecting each component with a
     # boolean scan instead is O(components x pixels) and dominates the whole
     # conversion once an image has a few thousand specks.
     width_features = features.shape[1]
-    top = int(inside_components.max()) + 1
     counts_all = np.bincount(inside_components, minlength=top).astype(np.float64)
     counts_all[counts_all == 0] = 1.0
     sums = np.stack(
@@ -380,6 +439,32 @@ def _absorb_small(
     )
     averages = sums / counts_all[:, None]
     means = {identifier: averages[identifier] for identifier in sizes}
+
+    # Worth, vectorised: area times the colour distance to the closest
+    # neighbour.  Asking that per component in Python costs minutes once a
+    # grainy photograph shatters into tens of thousands of them.
+    contrast = _neighbour_contrast(averages, edge_first, edge_second, top)
+    sizes_array = np.zeros(top, dtype=np.float64)
+    sizes_array[list(sizes)] = [sizes[identifier] for identifier in sizes]
+    # Guard the multiply rather than mask afterwards: a label with no pixels
+    # and no neighbours is 0 * inf, and nan would poison the ranking.
+    worth_array = np.full(top, np.inf, dtype=np.float64)
+    real = sizes_array > 0
+    worth_array[real] = sizes_array[real] * contrast[real]
+
+    def worth(identifier: int) -> float:
+        return float(worth_array[identifier])
+
+    specks = {identifier for identifier, count in sizes.items() if count < min_region}
+    doomed = set(specks)
+    survivors = [identifier for identifier in sizes if identifier not in doomed]
+    if len(survivors) > max_initial:
+        survivors.sort(key=worth)
+        doomed.update(survivors[: len(survivors) - max_initial])
+    small = sorted(doomed, key=worth)
+    if not small:
+        return components
+
     # Redirect through a union-find style map so a chain of absorptions still
     # resolves to one surviving label, then relabel the raster once.
     redirect: dict[int, int] = {}
@@ -408,8 +493,12 @@ def _absorb_small(
         sizes[target] = merged_size
         graph.setdefault(target, set()).update(graph.get(identifier, set()))
         graph[target].discard(target)
-        if target in pending and merged_size >= min_region:
+        # A speck that has grown past the floor is no longer a speck.  One
+        # doomed by the budget has to go whatever it absorbs on the way, or
+        # the count never comes down to the cap.
+        if target in pending and target in specks and merged_size >= min_region:
             pending.discard(target)
+            specks.discard(target)
     if not redirect:
         return components
     lookup = np.arange(int(flat.max()) + 1, dtype=np.int32)
@@ -477,30 +566,37 @@ def merge_regions(
     interior = segmentation.interior
     min_interior = max(16, int(settings.get("min_interior_px", 24)))
 
-    def fit(pixels: np.ndarray, seed: int) -> Paint:
+    # A region's interior, cached.  Selecting it out of the full pixel array
+    # on every candidate is the single most expensive thing in the loop, and
+    # it never changes until the region does -- and then only by gaining the
+    # other side's, since interior is a property of the pixel, not the region.
+    cores: dict[int, np.ndarray] = {}
+    for region in active.values():
+        cores[region.label] = (
+            region.pixels[interior[region.pixels]] if interior is not None else region.pixels
+        )
+
+    def fit(core: np.ndarray, pixels: np.ndarray, seed: int) -> Paint:
         # Fit the colour on the region's own pixels, not on the blend with
         # its neighbours; fall back when a region is all edge and has no
         # interior left to speak of.
-        if interior is not None:
-            core = pixels[interior[pixels]]
-            if len(core) >= min_interior:
-                pixels = core
+        chosen = core if len(core) >= min_interior else pixels
         # Narrow the index array first: gathering the whole union only to have
         # ``fit_paint`` discard all but a few thousand rows is what made the
         # merge loop quadratic in pixels rather than in edges.
-        picked = sample_for_fit(len(pixels), settings, seed)
+        picked = sample_for_fit(len(chosen), settings, seed)
         if picked is not None:
-            pixels = pixels[picked]
+            chosen = chosen[picked]
         return fit_paint(
-            segmentation.coords[pixels],
-            segmentation.colors[pixels],
-            segmentation.alpha[pixels],
+            segmentation.coords[chosen],
+            segmentation.colors[chosen],
+            segmentation.alpha[chosen],
             settings,
             seed=seed,
         )
 
     for region in active.values():
-        region.paint = fit(region.pixels, region.label)
+        region.paint = fit(cores[region.label], region.pixels, region.label)
 
     pending = sorted({float(value) for value in thresholds})
     # Bumped whenever a region changes, so stale heap entries are detectable.
@@ -509,6 +605,8 @@ def merge_regions(
     harm_limit = max(64, int(settings.get("harm_sample_limit", 512)))
     alpha_weight = float(settings.get("alpha_residual_weight", 90.0))
 
+    samples: dict[int, np.ndarray] = {}
+
     def harm_sample(region: Region) -> np.ndarray:
         """A stable subset of a region's pixels for judging damage.
 
@@ -516,15 +614,16 @@ def merge_regions(
         the fit on the anti-aliased rim would compare it against colours no
         paint was ever meant to reproduce.
         """
-        pixels = region.pixels
-        if interior is not None:
-            core = pixels[interior[pixels]]
-            if len(core) >= min_interior:
-                pixels = core
-        if len(pixels) <= harm_limit:
-            return pixels
-        generator = np.random.default_rng(region.label * 6151 + len(pixels))
-        return pixels[generator.choice(len(pixels), harm_limit, replace=False)]
+        cached = samples.get(region.label)
+        if cached is not None:
+            return cached
+        core = cores[region.label]
+        pixels = core if len(core) >= min_interior else region.pixels
+        if len(pixels) > harm_limit:
+            generator = np.random.default_rng(region.label * 6151 + len(pixels))
+            pixels = pixels[generator.choice(len(pixels), harm_limit, replace=False)]
+        samples[region.label] = pixels
+        return pixels
 
     def harm(region: Region, joint: Paint) -> float:
         """How much worse the joint paint explains this region than its own.
@@ -543,8 +642,10 @@ def merge_regions(
 
     def cost(first: int, second: int) -> tuple[float, Paint]:
         left, right = active[first], active[second]
-        pixels = np.concatenate([left.pixels, right.pixels])
-        paint = fit(pixels, first * 7919 + second)
+        core = np.concatenate([cores[first], cores[second]])
+        # Only needed when the pair has no interior worth fitting on.
+        pixels = core if len(core) >= min_interior else np.concatenate([left.pixels, right.pixels])
+        paint = fit(core, pixels, first * 7919 + second)
         damage = max(harm(left, paint), harm(right, paint))
         penalty = 0.0 if paint.residual <= max_residual else (paint.residual - max_residual) * 100.0
         return damage + penalty, paint
@@ -585,6 +686,11 @@ def merge_regions(
         del active[second]
         active[first] = merged
         version[first] += 1
+        # The union's interior is the two interiors; the damage sample has to
+        # be drawn afresh from it.
+        cores[first] = np.concatenate([cores[first], cores.pop(second)])
+        samples.pop(first, None)
+        samples.pop(second, None)
         neighbours = (graph.pop(second, set()) | graph.get(first, set())) - {first, second}
         graph[first] = neighbours
         for other in neighbours:

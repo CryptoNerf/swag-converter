@@ -43,7 +43,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         # Flat artwork: few colours, crisp edges worth preserving exactly.
         "init_clusters": 28,
         "min_region_px": 32,
-        "max_initial_regions": 320,
+        "max_initial_regions": 800,
         "merge_tolerance": 0.8,
         "curve_tolerance": 0.35,
     },
@@ -51,19 +51,20 @@ PRESETS: dict[str, dict[str, Any]] = {
         # Smooth shading: more clusters so gradients have material to merge.
         "init_clusters": 40,
         "min_region_px": 40,
-        "max_initial_regions": 420,
+        "max_initial_regions": 1000,
         "merge_tolerance": 0.8,
         "curve_tolerance": 0.40,
     },
     "photo": {
-        # Texture everywhere.  Denoise first, then keep enough clusters and a
-        # high enough region floor that the result reads as a deliberate
-        # stylisation rather than a smear: at 26 regions the subject dissolves,
-        # at ~77 the scene stays legible for about two seconds more.
-        "denoise": 3,
+        # Texture everywhere, and the region budget is what decides whether it
+        # reads as detail or as smear.  There is deliberately no median filter
+        # here any more: absorbing the least valuable regions already discards
+        # grain, because grain is small *and* low-contrast, while a median
+        # pass cannot tell a grain speck from an eyelash and took both.
+        "denoise": 0,
         "init_clusters": 80,
         "min_region_px": 28,
-        "max_initial_regions": 600,
+        "max_initial_regions": 1500,
         "min_regions": 60,
         "supersample": 3,
         "merge_tolerance": 0.8,
@@ -87,11 +88,29 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
 }
 
-#: Quality tiers layered on top of a preset.
+#: Quality tiers layered on top of a preset.  ``region_budget_scale`` is the
+#: detail dial: how many regions the image is allowed to keep before the
+#: cheapest start being absorbed, which is what decides whether texture reads
+#: as detail or as smear, and is also what most of the run time buys.
 QUALITY: dict[str, dict[str, Any]] = {
-    "fast": {"merge_tolerance_scale": 2.0, "curve_tolerance_scale": 1.8, "supersample_cap": 2},
-    "balanced": {"merge_tolerance_scale": 1.0, "curve_tolerance_scale": 1.0, "supersample_cap": 4},
-    "max": {"merge_tolerance_scale": 0.4, "curve_tolerance_scale": 0.7, "supersample_cap": 4},
+    "fast": {
+        "merge_tolerance_scale": 2.0,
+        "curve_tolerance_scale": 1.8,
+        "supersample_cap": 2,
+        "region_budget_scale": 0.35,
+    },
+    "balanced": {
+        "merge_tolerance_scale": 1.0,
+        "curve_tolerance_scale": 1.0,
+        "supersample_cap": 4,
+        "region_budget_scale": 1.0,
+    },
+    "max": {
+        "merge_tolerance_scale": 0.4,
+        "curve_tolerance_scale": 0.7,
+        "supersample_cap": 4,
+        "region_budget_scale": 2.0,
+    },
 }
 
 
@@ -106,6 +125,9 @@ def build(preset: str, quality: str = "balanced", overrides: dict[str, Any] | No
     settings["merge_tolerance"] = float(settings["merge_tolerance"]) * tier["merge_tolerance_scale"]
     settings["curve_tolerance"] = float(settings["curve_tolerance"]) * tier["curve_tolerance_scale"]
     settings["supersample"] = min(int(settings["supersample"]), int(tier["supersample_cap"]))
+    settings["max_initial_regions"] = max(
+        16, int(round(float(settings["max_initial_regions"]) * tier["region_budget_scale"]))
+    )
     settings["preset"] = preset
     settings["quality"] = quality
     if overrides:
