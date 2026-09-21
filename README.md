@@ -62,6 +62,8 @@ properly needs an Apple Developer account; if that matters to you, say so on
 the issue tracker.)
 
 Already have Python? `pip install 'swag-converter[gui]'` then `swag-gui`.
+Running it from a clone, or building the app yourself, is
+[packaging/README.md](packaging/README.md).
 
 ## Install
 
