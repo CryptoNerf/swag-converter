@@ -46,6 +46,23 @@ This one does two things differently:
   them reads the blend as shading, which is how a flat white counter inside a
   letter picks up a grey gradient.
 
+## The app
+
+If you would rather not touch a terminal, there is a window:
+
+**[Download for macOS](https://github.com/CryptoNerf/swag-converter/releases/latest)**
+— Apple Silicon, no Python needed.
+
+Drop images in, pick how much detail you want, press Convert. The result opens
+next to the original so you can flip between them.
+
+The build is not signed, so macOS refuses it the first time. Right-click the
+app, choose **Open**, then **Open** again — once, and never after. (Signing it
+properly needs an Apple Developer account; if that matters to you, say so on
+the issue tracker.)
+
+Already have Python? `pip install 'swag-converter[gui]'` then `swag-gui`.
+
 ## Install
 
 ```bash
@@ -224,11 +241,14 @@ anti-aliasing leaving hairline seams between them.
 ## Development
 
 ```bash
-pip install -e '.[dev]'
+pip install -e '.[dev,gui]'
 pytest                      # full suite
 pytest -m 'not slow'        # skip the timing guards
 python examples/make_samples.py
+swag-gui                    # the desktop window
 ```
+
+Building the app itself is [packaging/README.md](packaging/README.md).
 
 Releases are cut by pushing a tag; see [RELEASING.md](RELEASING.md).
 

@@ -1,0 +1,61 @@
+name: Desktop build
+
+# Builds the macOS app.  Runs on a tag alongside the release, and on demand
+# so the recipe can be exercised without cutting a version.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e '.[gui]' pyinstaller
+
+      - name: Build the app
+        run: pyinstaller packaging/swag-gui.spec --distpath dist-app --noconfirm
+
+      - name: Check it is an app that starts
+        run: |
+          app="dist-app/sw(a)g.converter.app"
+          test -d "$app"
+          binary="$app/Contents/MacOS/swag-converter"
+          test -x "$binary"
+          # The window needs a session to open, which a runner has not got.
+          # Importing the whole GUI stack inside the bundle proves the parts
+          # that actually break in a frozen build — missing data files, a
+          # hidden import PyInstaller did not find.
+          "$binary" --self-check
+          du -sh "$app"
+
+      - name: Wrap it in a disk image
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || version="dev"
+          mkdir -p staging
+          cp -R "dist-app/sw(a)g.converter.app" staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname "sw(a)g.converter" -srcfolder staging \
+            -ov -format UDZO "swag-converter-${version}-macos-arm64.dmg"
+          shasum -a 256 *.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: "*.dmg"
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.dmg"

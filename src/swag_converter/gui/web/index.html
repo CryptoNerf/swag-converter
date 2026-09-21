@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sw(a)g.converter</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div id="drop" class="drop-veil" hidden><div>Drop images to add them</div></div>
+
+<header>
+  <div class="brand">sw(a)g<span>.converter</span></div>
+  <div class="tagline">raster → vector, on this machine</div>
+  <div class="spacer"></div>
+  <button id="add" class="primary">Add images…</button>
+</header>
+
+<main>
+  <section class="panel queue">
+    <div class="panel-head">
+      <h2>Images</h2>
+      <div class="row">
+        <button id="clear-done" class="quiet" hidden>Clear finished</button>
+        <button id="clear-all" class="quiet" hidden>Clear all</button>
+      </div>
+    </div>
+
+    <div id="empty" class="empty">
+      <div class="empty-mark">⇣</div>
+      <p><b>Drop images here</b>, or use <i>Add images…</i></p>
+      <p class="muted" id="formats"></p>
+    </div>
+
+    <ul id="list" class="list"></ul>
+
+    <div class="panel-foot">
+      <div id="summary" class="muted"></div>
+      <div class="row">
+        <button id="cancel" class="danger" hidden>Stop</button>
+        <button id="convert" class="primary" disabled>Convert</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel settings">
+    <h2>Settings</h2>
+
+    <label class="field">
+      <span>What is it</span>
+      <select id="preset"></select>
+      <small id="preset-note" class="muted"></small>
+    </label>
+
+    <label class="field">
+      <span>Detail</span>
+      <select id="quality"></select>
+      <small id="quality-note" class="muted"></small>
+    </label>
+
+    <label class="field">
+      <span>Working size</span>
+      <select id="max-edge">
+        <option value="640">Small — 640 px</option>
+        <option value="1024">Normal — 1024 px</option>
+        <option value="1600">Large — 1600 px</option>
+        <option value="2400">Very large — 2400 px</option>
+        <option value="0">Full size (slow)</option>
+      </select>
+      <small class="muted">Longer edge before tracing. Bigger keeps more detail and costs time.</small>
+    </label>
+
+    <label class="field">
+      <span>Flat background</span>
+      <select id="background">
+        <option value="auto">Remove if there is one</option>
+        <option value="always">Always remove</option>
+        <option value="keep">Always keep</option>
+      </select>
+      <small class="muted">Clears a plain backdrop behind the subject.</small>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" id="measure">
+      <span>Score the result</span>
+    </label>
+    <small class="muted" id="measure-note">Renders the SVG back and compares it. Slower.</small>
+
+    <div class="field">
+      <span>Save to</span>
+      <div class="row">
+        <button id="pick-out" class="quiet">Choose folder…</button>
+        <button id="out-beside" class="quiet">Beside original</button>
+      </div>
+      <small class="muted" id="outdir">Beside each original</small>
+    </div>
+
+    <div class="grow"></div>
+    <div class="muted version" id="version"></div>
+  </aside>
+</main>
+
+<div id="viewer" class="viewer" hidden>
+  <div class="viewer-bar">
+    <div class="row">
+      <button class="quiet" id="viewer-close">← Back</button>
+      <b id="viewer-name"></b>
+    </div>
+    <div class="row" id="viewer-toggle">
+      <button data-side="source">Original</button>
+      <button data-side="vector" aria-pressed="true">Vector</button>
+    </div>
+    <div class="row">
+      <button class="quiet" id="viewer-reveal">Show in folder</button>
+      <button class="quiet" id="viewer-save">Save a copy…</button>
+    </div>
+  </div>
+  <div class="viewer-stage">
+    <div class="viewer-frame">
+      <img id="viewer-source" alt="">
+      <div id="viewer-vector"></div>
+    </div>
+  </div>
+  <div class="viewer-stats" id="viewer-stats"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
