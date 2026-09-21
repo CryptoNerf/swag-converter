@@ -36,9 +36,55 @@ def self_check() -> int:
     except Exception as exc:
         print(f"the bundle cannot start: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    # The riskiest thing in a frozen build is not importing, it is spawning:
+    # workers restart this same binary, and a bundle that gets that wrong
+    # opens a window per conversion or hangs. Convert something real.
+    converted = _convert_something()
+    if converted is None:
+        return 1
+
     print(f"ok — sw(a)g.converter {described['version']}, "
-          f"{len(described['presets'])} presets, scoring {'on' if described['scoring'] else 'off'}")
+          f"{len(described['presets'])} presets, scoring {'on' if described['scoring'] else 'off'}, "
+          f"converted a test image to {converted} shapes")
     return 0
+
+
+def _convert_something() -> int | None:
+    """Run one tiny image through the real queue, workers and all."""
+    import tempfile
+    import time
+
+    import numpy as np
+    from PIL import Image
+
+    from .bridge import Bridge
+
+    bridge = Bridge()
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "check.png"
+            pixels = np.zeros((48, 48, 4), dtype=np.uint8)
+            pixels[:, :, 3] = 255
+            pixels[:, :, :3] = 210
+            pixels[12:36, 12:36] = (30, 60, 190, 255)
+            Image.fromarray(pixels, "RGBA").save(source)
+
+            bridge.update_settings({"quality": "fast", "measure": False, "output_dir": directory})
+            added = bridge._accept([source])
+            if not added:
+                print("the queue refused a plain PNG", file=sys.stderr)
+                return None
+            bridge.start()
+            deadline = time.monotonic() + 180
+            while bridge.poll()["busy"] and time.monotonic() < deadline:
+                time.sleep(0.1)
+            job = bridge.poll()["jobs"][0]
+            if job["status"] != "done":
+                print(f"a conversion did not finish: {job['status']} {job['error'] or ''}", file=sys.stderr)
+                return None
+            return int(job["result"]["regions"])
+    finally:
+        bridge.shutdown()
 
 
 def main(argv: list[str] | None = None) -> int:
