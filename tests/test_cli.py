@@ -83,3 +83,17 @@ def test_preset_and_quality_choices_are_validated() -> None:
         _parser().parse_args(["x.png", "--preset", "nonsense"])
     parsed = _parser().parse_args(["x.png", "-p", "photo", "-q", "max"])
     assert parsed.preset == "photo" and parsed.quality == "max"
+
+
+def test_version_matches_the_installed_distribution() -> None:
+    """0.2.0 shipped announcing itself as 0.1.0.
+
+    The package used to repeat its version in __init__; it now reads the one
+    recorded at install time, so the two cannot drift apart again.
+    """
+    from importlib.metadata import version
+
+    import swag_converter
+
+    assert swag_converter.__version__ == version("swag-converter")
+    assert swag_converter.__version__ != "0+unknown"

@@ -44,6 +44,13 @@ jobs:
           /tmp/check/bin/python examples/make_samples.py
           /tmp/check/bin/swag examples/badge.png --out /tmp/svg --no-measure
           test -s /tmp/svg/badge.svg
+          # 0.2.0 shipped reporting 0.1.0: the package repeated its own
+          # version instead of reading it.  Ask the built wheel directly.
+          reported=$(/tmp/check/bin/swag --version | awk '{print $NF}')
+          if [ "$reported" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::the wheel reports $reported, tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
