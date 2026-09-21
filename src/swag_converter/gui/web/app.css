@@ -169,6 +169,26 @@ main {
   font-weight: 600;
 }
 
+/* ---- notices ----
+   Anything that goes wrong has to be visible; a silently rejected file or a
+   bridge call that threw is indistinguishable from a dead button. */
+
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(640px, 88vw);
+  padding: 10px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #2a2d34;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .45);
+  font-size: 13px;
+}
+.notice.bad { border-color: #6a3439; background: #332224; color: #ffc9c4; }
+
 /* ---- viewer ---- */
 
 .viewer {

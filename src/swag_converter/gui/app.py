@@ -43,8 +43,15 @@ def self_check() -> int:
     if converted is None:
         return 1
 
+    from ..image import SUPPORTED_SUFFIXES
+
+    if ".heic" not in SUPPORTED_SUFFIXES:
+        print("the bundle cannot open HEIC, which is what phones produce", file=sys.stderr)
+        return 1
+
     print(f"ok — sw(a)g.converter {described['version']}, "
           f"{len(described['presets'])} presets, scoring {'on' if described['scoring'] else 'off'}, "
+          f"{len(described['suffixes'])} formats, "
           f"converted a test image to {converted} shapes")
     return 0
 
@@ -121,7 +128,14 @@ def main(argv: list[str] | None = None) -> int:
         background_color="#17181B",
     )
     bridge.window = window
-    window.events.closing += lambda: bridge.shutdown()
+
+    def on_closing() -> None:
+        # pywebview runs this inline on the closing path, so anything slow
+        # here freezes the window as it shuts. Returning None (never False)
+        # lets the close proceed.
+        bridge.shutdown()
+
+    window.events.closing += on_closing
 
     webview.start()
     bridge.shutdown()

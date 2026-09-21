@@ -9,7 +9,12 @@ three drag along and we never touch.
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    copy_metadata,
+)
 
 HERE = Path(SPECPATH).resolve()
 ROOT = HERE.parent
@@ -21,6 +26,8 @@ hidden = [
     "skimage.metrics",
     "PIL.Image",
     "PIL.ImageOps",
+    # Registered at import time so phone photographs open at all.
+    "pillow_heif",
 ]
 
 datas = [
@@ -42,7 +49,9 @@ excludes = [
 analysis = Analysis(
     [str(HERE / "entry.py")],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    # pillow-heif carries libheif and its codecs; without them HEIC files
+    # are offered by the dialog and then fail to open.
+    binaries=collect_dynamic_libs("pillow_heif"),
     datas=datas,
     hiddenimports=hidden,
     hookspath=[],

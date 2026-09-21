@@ -181,21 +181,35 @@ class Queue:
             ]
             if not self._pending:
                 return
+            if self._channel is not None:
+                try:
+                    self._channel.close()
+                except Exception:
+                    pass
             self._channel = self._context.Queue()
         self._stop.clear()
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
 
     def cancel(self) -> None:
-        """Stop everything, killing whatever is mid-conversion."""
+        """Stop everything, killing whatever is mid-conversion.
+
+        Signal every worker before waiting on any of them.  Terminating and
+        joining one at a time costs the timeout once per worker, which is how
+        closing the window mid-batch came to look like a hang.
+        """
         self._stop.set()
         with self._lock:
             self._pending.clear()
             processes = list(self._running.items())
-        for identifier, process in processes:
+        for _, process in processes:
             if process.is_alive():
                 process.terminate()
+        for identifier, process in processes:
             process.join(timeout=3)
+            if process.is_alive():  # ignored SIGTERM; insist
+                process.kill()
+                process.join(timeout=1)
             with self._lock:
                 job = self._jobs.get(identifier)
                 if job is not None and job.status == "running":
@@ -268,10 +282,18 @@ class Queue:
                     job.error = f"the converter stopped unexpectedly (exit code {process.exitcode})"
 
     def shutdown(self) -> None:
+        """Safe to call twice: the window's close handler and the exit path
+        both run it, and on this platform the close handler runs inline."""
         self.cancel()
         for job in self.jobs():
             if job.temporary:
                 _discard(job.source)
+        if self._channel is not None:
+            try:
+                self._channel.close()
+            except Exception:
+                pass
+            self._channel = None
 
 
 def _discard(path: Path) -> None:

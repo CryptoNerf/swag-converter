@@ -30,10 +30,14 @@ dependencies = [
 [project.optional-dependencies]
 # Enables the similarity score; conversion works without it.
 quality = ["CairoSVG>=2.7"]
+# Phones shoot HEIC and Pillow cannot read it unaided.
+heic = ["pillow-heif>=0.13"]
 # The desktop window.  pywebview draws through the platform's own browser
 # engine, so this adds a couple of megabytes rather than a whole browser.
-gui = ["pywebview>=5.0"]
-dev = ["pytest>=8.0", "CairoSVG>=2.7", "pywebview>=5.0"]
+# HEIC comes with it: someone converting holiday photos should not have to
+# discover that the format their phone uses is an optional extra.
+gui = ["pywebview>=5.0", "pillow-heif>=0.13"]
+dev = ["pytest>=8.0", "CairoSVG>=2.7", "pywebview>=5.0", "pillow-heif>=0.13"]
 
 [project.scripts]
 swag = "swag_converter.cli:main"

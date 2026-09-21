@@ -6,6 +6,41 @@ const api = () => window.pywebview.api;
 
 const $ = (id) => document.getElementById(id);
 
+// Every call to Python goes through here. A bridge method that throws used to
+// reject a promise nobody was listening to, which is how "Add images" came to
+// do nothing at all: the failure was real and completely invisible.
+async function call(method, ...args) {
+  try {
+    return await api()[method](...args);
+  } catch (err) {
+    const detail = (err && (err.message || err.reason)) || String(err);
+    say(`${method} failed — ${detail}`, 'bad');
+    return null;
+  }
+}
+
+let sayTimer = null;
+function say(message, tone) {
+  const box = $('notice');
+  box.textContent = message;
+  box.className = 'notice' + (tone ? ' ' + tone : '');
+  box.hidden = false;
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { box.hidden = true; }, tone === 'bad' ? 9000 : 5000);
+}
+
+function report(outcome) {
+  // {added, skipped} from the bridge; the page must not silently drop either.
+  if (!outcome) return [];
+  const skipped = outcome.skipped || [];
+  if (skipped.length === 1) {
+    say(`${skipped[0].name} ${skipped[0].reason}.`, 'bad');
+  } else if (skipped.length > 1) {
+    say(`${skipped.length} files skipped — ${skipped[0].name} ${skipped[0].reason}, and others.`, 'bad');
+  }
+  return outcome.added || [];
+}
+
 const PRESET_NOTES = {
   auto: 'Looks at the image and picks for you.',
   icon: 'Logos, UI icons, flat artwork. Crisp edges, few shapes.',
@@ -32,7 +67,11 @@ const state = {
 /* ------------------------------------------------------------------ setup */
 
 async function boot() {
-  state.info = await api().describe();
+  state.info = await call('describe');
+  if (!state.info) {
+    say('The converter did not start. Reopen the app.', 'bad');
+    return;
+  }
   const s = state.info.settings;
 
   fill($('preset'), state.info.presets, s.preset);
@@ -65,7 +104,7 @@ function notes() {
 }
 
 async function pushSettings(patch) {
-  await api().update_settings(patch);
+  await call('update_settings', patch);
   notes();
 }
 
@@ -109,13 +148,13 @@ function render() {
     const actions = document.createElement('div');
     actions.className = 'item-actions';
     if (job.status === 'done') {
-      actions.appendChild(button('Show', (e) => { e.stopPropagation(); api().reveal(job.destination); }));
+      actions.appendChild(button('Show', (e) => { e.stopPropagation(); call('reveal', job.destination); }));
     }
     if (job.status !== 'running') {
       actions.appendChild(button('Remove', async (e) => {
         e.stopPropagation();
         state.thumbs.delete(job.id);
-        apply(await api().remove(job.id));
+        apply(await call('remove', job.id));
       }));
     }
 
@@ -177,13 +216,14 @@ function button(label, onclick) {
 }
 
 function apply(snapshot) {
+  if (!snapshot) return;
   state.jobs = snapshot.jobs;
   state.busy = snapshot.busy;
   render();
   pace();
 }
 
-async function refresh() { apply(await api().poll()); }
+async function refresh() { apply(await call('poll')); }
 
 function pace() {
   // Poll only while something is moving; an idle window should be idle.
@@ -194,8 +234,11 @@ function pace() {
 /* ----------------------------------------------------------------- viewer */
 
 async function openViewer(id) {
-  const data = await api().preview(id);
-  if (!data || !data.svg) return;
+  const data = await call('preview', id);
+  if (!data || !data.svg) {
+    say('That result is no longer on disk.', 'bad');
+    return;
+  }
   state.viewing = data;
   $('viewer-name').textContent = data.name;
   $('viewer-source').src = data.source;
@@ -249,7 +292,17 @@ function dropTargets() {
     depth = 0;
     veil.hidden = true;
     const files = Array.from(e.dataTransfer?.files || []);
-    for (const file of files) await handOver(file);
+    if (!files.length) return;
+    const cap = (state.info && state.info.max_drop_bytes) || Infinity;
+    const tooBig = files.filter((f) => f.size > cap);
+    if (tooBig.length) {
+      // Refuse before reading: a dropped file crosses the bridge as base64,
+      // which is a third larger again than the file itself.
+      say(`${tooBig[0].name} is larger than ${Math.round(cap / 1024 / 1024)} MB.`, 'bad');
+    }
+    for (const file of files) {
+      if (file.size <= cap) await handOver(file);
+    }
     await refresh();
   });
 }
@@ -262,8 +315,7 @@ function handOver(file) {
     reader.onerror = () => resolve();
     reader.onload = async () => {
       const base64 = String(reader.result).split(',', 2)[1] || '';
-      const added = await api().accept_drop(file.name, base64);
-      remember(added);
+      remember(report(await call('accept_drop', file.name, base64)));
       resolve();
     };
     reader.readAsDataURL(file);
@@ -276,14 +328,20 @@ function remember(added) {
   }
 }
 
+function forgetFinished() {
+  for (const job of state.jobs) {
+    if (job.status !== 'running' && job.status !== 'queued') state.thumbs.delete(job.id);
+  }
+}
+
 /* ------------------------------------------------------------------ wiring */
 
 function wire() {
-  $('add').onclick = async () => { remember(await api().choose_images()); await refresh(); };
-  $('convert').onclick = async () => apply(await api().start());
-  $('cancel').onclick = async () => apply(await api().cancel());
-  $('clear-done').onclick = async () => apply(await api().clear_finished());
-  $('clear-all').onclick = async () => { state.thumbs.clear(); apply(await api().clear_all()); };
+  $('add').onclick = async () => { remember(report(await call('choose_images'))); await refresh(); };
+  $('convert').onclick = async () => apply(await call('start'));
+  $('cancel').onclick = async () => apply(await call('cancel'));
+  $('clear-done').onclick = async () => { forgetFinished(); apply(await call('clear_finished')); };
+  $('clear-all').onclick = async () => { state.thumbs.clear(); apply(await call('clear_all')); };
 
   $('preset').onchange = (e) => pushSettings({ preset: e.target.value });
   $('quality').onchange = (e) => pushSettings({ quality: e.target.value });
@@ -291,12 +349,16 @@ function wire() {
   $('background').onchange = (e) => pushSettings({ background: e.target.value });
   $('measure').onchange = (e) => pushSettings({ measure: e.target.checked });
 
-  $('pick-out').onclick = async () => setOut(await api().choose_output_dir());
-  $('out-beside').onclick = async () => setOut(await api().use_source_folder());
+  $('pick-out').onclick = async () => setOut(await call('choose_output_dir'));
+  $('out-beside').onclick = async () => setOut(await call('use_source_folder'));
 
   $('viewer-close').onclick = closeViewer;
-  $('viewer-reveal').onclick = () => state.viewing && api().reveal(state.viewing.result.destination);
-  $('viewer-save').onclick = () => state.viewing && api().save_copy(state.viewing.id);
+  $('viewer-reveal').onclick = () => state.viewing && call('reveal', state.viewing.result.destination);
+  $('viewer-save').onclick = async () => {
+    if (!state.viewing) return;
+    const saved = await call('save_copy', state.viewing.id);
+    if (saved) say('Saved to ' + saved);
+  };
   for (const b of $('viewer-toggle').querySelectorAll('button')) {
     b.onclick = () => side(b.dataset.side);
   }

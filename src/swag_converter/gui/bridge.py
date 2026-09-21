@@ -27,6 +27,17 @@ THUMBNAIL = 320
 #: A dropped file is read through the page, so it has to be bounded.
 MAX_DROP_BYTES = 64 * 1024 * 1024
 
+def image_filter() -> str:
+    """The open dialog's filter, in the shape pywebview insists on.
+
+    ``Description (*.a;*.b)`` — semicolons, no spaces.  Anything else is
+    rejected before the dialog opens, which is how "Add images" came to do
+    nothing at all rather than fail visibly.
+    """
+    patterns = ";".join(f"*{suffix}" for suffix in sorted(SUPPORTED_SUFFIXES))
+    return f"Images ({patterns})"
+
+
 DEFAULTS: dict[str, Any] = {
     "preset": "auto",
     "quality": "balanced",
@@ -56,6 +67,9 @@ class Bridge:
             "suffixes": sorted(SUPPORTED_SUFFIXES),
             "settings": self.settings,
             "scoring": _scoring_available(),
+            # So the page can refuse an oversized drop before reading it into
+            # memory and base64-ing it across the bridge.
+            "max_drop_bytes": MAX_DROP_BYTES,
         }
 
     def update_settings(self, patch: dict[str, Any]) -> dict[str, Any]:
@@ -83,19 +97,18 @@ class Bridge:
 
     # -- getting images in -------------------------------------------------
 
-    def choose_images(self) -> list[dict[str, Any]]:
+    def choose_images(self) -> dict[str, Any]:
         import webview
 
-        patterns = " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_SUFFIXES))
         picked = self.window.create_file_dialog(
-            webview.OPEN_DIALOG, allow_multiple=True, file_types=(f"Images ({patterns})",)
+            webview.FileDialog.OPEN, allow_multiple=True, file_types=(image_filter(),)
         )
         return self._accept([Path(item) for item in picked or []])
 
     def choose_output_dir(self) -> str:
         import webview
 
-        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        picked = self.window.create_file_dialog(webview.FileDialog.FOLDER)
         if picked:
             self.settings["output_dir"] = str(Path(picked[0]))
         return self.settings["output_dir"]
@@ -104,7 +117,7 @@ class Bridge:
         self.settings["output_dir"] = ""
         return ""
 
-    def accept_drop(self, name: str, payload: str) -> list[dict[str, Any]]:
+    def accept_drop(self, name: str, payload: str) -> dict[str, Any]:
         """Take a file the page read for us.
 
         The system webview will not tell a page where a dropped file lives, so
@@ -113,25 +126,52 @@ class Bridge:
         """
         suffix = Path(name).suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
-            return []
+            return _rejected(name, "not a format this can read")
         try:
             raw = base64.b64decode(payload, validate=True)
         except (binascii.Error, ValueError):
-            return []
-        if not raw or len(raw) > MAX_DROP_BYTES:
-            return []
+            return _rejected(name, "could not be read")
+        if not raw:
+            return _rejected(name, "is empty")
+        if len(raw) > MAX_DROP_BYTES:
+            return _rejected(name, f"is larger than {MAX_DROP_BYTES // (1024 * 1024)} MB")
         target = self._scratch / f"{os.urandom(6).hex()}{suffix}"
         target.write_bytes(raw)
-        return self._accept([target], temporary=True)
+        outcome = self._accept([target], temporary=True, display_name=name)
+        if not outcome["added"]:
+            target.unlink(missing_ok=True)
+        return outcome
 
-    def _accept(self, paths: list[Path], temporary: bool = False) -> list[dict[str, Any]]:
-        added = []
+    def _accept(
+        self, paths: list[Path], temporary: bool = False, display_name: str | None = None
+    ) -> dict[str, Any]:
+        """Queue what we can actually convert, and say why about the rest."""
+        added: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        queued = {str(Path(job.source).resolve()) for job in self.queue.jobs()}
         for path in paths:
-            if not path.is_file() or path.suffix.lower() not in SUPPORTED_SUFFIXES:
+            shown = display_name or path.name
+            if not path.is_file():
+                skipped.append({"name": shown, "reason": "is no longer there"})
                 continue
+            if path.suffix.lower() not in SUPPORTED_SUFFIXES:
+                skipped.append({"name": shown, "reason": "not a format this can read"})
+                continue
+            resolved = str(path.resolve())
+            if resolved in queued:
+                # Two jobs for one file would race for the same output path.
+                skipped.append({"name": shown, "reason": "is already in the list"})
+                continue
+            thumbnail = _thumbnail(path)
+            if not thumbnail:
+                # Whatever stopped the thumbnail will stop the conversion, and
+                # failing here says so while the name is still on screen.
+                skipped.append({"name": shown, "reason": "is not an image we can open"})
+                continue
+            queued.add(resolved)
             job = self.queue.add(path, self._destination_for_path(path), temporary=temporary)
-            added.append({**job.state(), "thumbnail": _thumbnail(path)})
-        return added
+            added.append({**job.state(), "thumbnail": thumbnail})
+        return {"added": added, "skipped": skipped}
 
     # -- running -----------------------------------------------------------
 
@@ -219,7 +259,9 @@ class Bridge:
         if job is None or job.status != "done":
             return ""
         picked = self.window.create_file_dialog(
-            webview.SAVE_DIALOG, save_filename=Path(job.destination).name, file_types=("SVG (*.svg)",)
+            webview.FileDialog.SAVE,
+            save_filename=Path(job.destination).name,
+            file_types=("SVG (*.svg)",),
         )
         if not picked:
             return ""
@@ -246,6 +288,10 @@ class Bridge:
             self._scratch.rmdir()
         except OSError:
             pass
+
+
+def _rejected(name: str, reason: str) -> dict[str, Any]:
+    return {"added": [], "skipped": [{"name": name, "reason": reason}]}
 
 
 def _scoring_available() -> bool:

@@ -18,10 +18,39 @@ from PIL import Image, ImageOps
 # Raise it rather than remove it, and surface an error instead of crashing.
 Image.MAX_IMAGE_PIXELS = 256_000_000
 
-SUPPORTED_SUFFIXES = {
+#: Everything we would take if Pillow could read it here.
+_CANDIDATE_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff",
     ".ppm", ".pgm", ".tga", ".ico", ".jfif", ".avif", ".heic", ".heif",
 }
+
+
+def _register_optional_formats() -> None:
+    """HEIC needs a plug-in Pillow does not ship, and phones produce little else."""
+    try:
+        import pillow_heif
+    except ImportError:
+        return
+    try:
+        pillow_heif.register_heif_opener()
+    except Exception:  # a broken install must not stop the other formats
+        pass
+
+
+def _readable_suffixes() -> set[str]:
+    """The candidates this installation can actually open.
+
+    Claiming a format we cannot read is worse than not offering it: the file
+    dialog accepts a HEIC, the thumbnail comes back blank and the conversion
+    fails on a file the tool said it supported.
+    """
+    _register_optional_formats()
+    Image.init()
+    known = {extension.lower() for extension in Image.EXTENSION}
+    return {suffix for suffix in _CANDIDATE_SUFFIXES if suffix in known}
+
+
+SUPPORTED_SUFFIXES = _readable_suffixes()
 
 
 @dataclass
