@@ -35,7 +35,12 @@ jobs:
           # Importing the whole GUI stack inside the bundle proves the parts
           # that actually break in a frozen build — missing data files, a
           # hidden import PyInstaller did not find.
-          "$binary" --self-check
+          reported=$("$binary" --self-check)
+          echo "$reported"
+          case "$reported" in
+            *"0+unknown"*)
+              echo "::error::the bundle does not know its own version"; exit 1;;
+          esac
           du -sh "$app"
 
       - name: Wrap it in a disk image

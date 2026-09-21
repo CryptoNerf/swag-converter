@@ -9,7 +9,7 @@ three drag along and we never touch.
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 HERE = Path(SPECPATH).resolve()
 ROOT = HERE.parent
@@ -25,6 +25,9 @@ hidden = [
 
 datas = [
     (str(ROOT / "src/swag_converter/gui/web"), "swag_converter/gui/web"),
+    # The package reads its own version from the installed distribution, so
+    # the bundle has to carry that metadata or it reports 0+unknown.
+    *copy_metadata("swag-converter"),
     *collect_data_files("skimage", includes=["**/*.pyi"]),
 ]
 
