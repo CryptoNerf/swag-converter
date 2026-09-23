@@ -8,122 +8,136 @@
 </head>
 <body>
 
-<div id="drop" class="drop-veil" hidden><div>Drop images to add them</div></div>
+<div id="drop" class="veil" hidden>
+  <div class="veil-card">
+    <div class="veil-mark">↓</div>
+    <div class="veil-title">Drop to add</div>
+  </div>
+</div>
+
 <div id="notice" class="notice" hidden></div>
 
-<header>
-  <div class="brand">sw(a)g<span>.converter</span></div>
-  <div class="tagline">raster → vector, on this machine</div>
-  <div class="spacer"></div>
-  <button id="add" class="primary">Add images…</button>
+<header class="top">
+  <div class="mark" aria-hidden="true"></div>
+  <div class="title">
+    <b>sw(a)g.converter</b>
+    <span>raster → vector, on this machine</span>
+  </div>
+  <div class="grow"></div>
+  <button id="settings-toggle" class="ghost" aria-pressed="true" title="Settings">Settings</button>
+  <button id="add" class="accent">Add images</button>
 </header>
 
-<main>
-  <section class="panel queue">
-    <div class="panel-head">
-      <h2>Images</h2>
-      <div class="row">
-        <button id="clear-done" class="quiet" hidden>Clear finished</button>
-        <button id="clear-all" class="quiet" hidden>Clear all</button>
-      </div>
-    </div>
-
+<main class="work">
+  <section class="stage">
     <div id="empty" class="empty">
-      <div class="empty-mark">⇣</div>
-      <p><b>Drop images here</b>, or use <i>Add images…</i></p>
-      <p class="muted" id="formats"></p>
-    </div>
-
-    <ul id="list" class="list"></ul>
-
-    <div class="panel-foot">
-      <div id="summary" class="muted"></div>
-      <div class="row">
-        <button id="cancel" class="danger" hidden>Stop</button>
-        <button id="convert" class="primary" disabled>Convert</button>
+      <div class="empty-art" aria-hidden="true">
+        <span class="px"></span><span class="px"></span><span class="px"></span>
+        <span class="px"></span><span class="px"></span><span class="px"></span>
+        <svg viewBox="0 0 120 60" class="empty-curve" aria-hidden="true">
+          <path d="M4 50 C 30 50, 26 10, 56 10 S 92 46, 116 12" />
+          <circle cx="4" cy="50" r="4"/><circle cx="56" cy="10" r="4"/><circle cx="116" cy="12" r="4"/>
+        </svg>
       </div>
+      <h1>Drop images here</h1>
+      <p>or <button id="add-inline" class="link">choose them</button> — they never leave this machine.</p>
+      <p class="formats" id="formats"></p>
     </div>
+
+    <ul id="grid" class="grid" hidden></ul>
   </section>
 
-  <aside class="panel settings">
-    <h2>Settings</h2>
+  <aside id="panel" class="panel">
+    <div class="group">
+      <h2>What is it</h2>
+      <div id="presets" class="cards"></div>
+    </div>
 
-    <label class="field">
-      <span>What is it</span>
-      <select id="preset"></select>
-      <small id="preset-note" class="muted"></small>
-    </label>
+    <div class="group">
+      <h2>Detail</h2>
+      <div id="quality" class="seg wide"></div>
+      <p class="hint" id="quality-hint"></p>
+    </div>
 
-    <label class="field">
-      <span>Detail</span>
-      <select id="quality"></select>
-      <small id="quality-note" class="muted"></small>
-    </label>
+    <div class="group">
+      <h2>Working size</h2>
+      <div id="edge" class="seg wide"></div>
+      <p class="hint">The longer edge before tracing. Larger keeps more detail and takes longer.</p>
+    </div>
 
-    <label class="field">
-      <span>Working size</span>
-      <select id="max-edge">
-        <option value="640">Small — 640 px</option>
-        <option value="1024">Normal — 1024 px</option>
-        <option value="1600">Large — 1600 px</option>
-        <option value="2400">Very large — 2400 px</option>
-        <option value="0">Full size (slow)</option>
-      </select>
-      <small class="muted">Longer edge before tracing. Bigger keeps more detail and costs time.</small>
-    </label>
+    <div class="group">
+      <h2>Plain background</h2>
+      <div id="background" class="seg wide"></div>
+      <p class="hint" id="background-hint"></p>
+    </div>
 
-    <label class="field">
-      <span>Flat background</span>
-      <select id="background">
-        <option value="auto">Remove if there is one</option>
-        <option value="always">Always remove</option>
-        <option value="keep">Always keep</option>
-      </select>
-      <small class="muted">Clears a plain backdrop behind the subject.</small>
-    </label>
+    <div class="group">
+      <label class="switch">
+        <input type="checkbox" id="measure">
+        <span class="track"><span class="knob"></span></span>
+        <span class="switch-label">Score the result</span>
+      </label>
+      <p class="hint" id="measure-hint"></p>
+    </div>
 
-    <label class="check">
-      <input type="checkbox" id="measure">
-      <span>Score the result</span>
-    </label>
-    <small class="muted" id="measure-note">Renders the SVG back and compares it. Slower.</small>
-
-    <div class="field">
-      <span>Save to</span>
-      <div class="row">
-        <button id="pick-out" class="quiet">Choose folder…</button>
-        <button id="out-beside" class="quiet">Beside original</button>
+    <div class="group">
+      <h2>Save to</h2>
+      <div class="outrow">
+        <div class="outpath" id="outdir">Beside each original</div>
+        <button id="pick-out" class="ghost small">Change…</button>
       </div>
-      <small class="muted" id="outdir">Beside each original</small>
+      <button id="out-beside" class="link" hidden>Put them beside the originals again</button>
     </div>
 
     <div class="grow"></div>
-    <div class="muted version" id="version"></div>
+    <div class="version" id="version"></div>
   </aside>
 </main>
 
+<footer class="bar">
+  <div class="bar-left">
+    <div class="tally" id="tally"></div>
+    <div class="track-line" id="batch" hidden><span id="batch-fill"></span></div>
+  </div>
+  <div class="bar-right">
+    <button id="clear" class="ghost" hidden>Clear</button>
+    <button id="cancel" class="stop" hidden>Stop</button>
+    <button id="convert" class="accent big" disabled>Convert</button>
+  </div>
+</footer>
+
 <div id="viewer" class="viewer" hidden>
-  <div class="viewer-bar">
-    <div class="row">
-      <button class="quiet" id="viewer-close">← Back</button>
-      <b id="viewer-name"></b>
+  <header class="vbar">
+    <button id="v-close" class="ghost">← Back</button>
+    <div class="vname"><b id="v-name"></b><span id="v-pos"></span></div>
+    <div class="grow"></div>
+    <div class="seg" id="v-mode">
+      <button data-mode="wipe" aria-pressed="true">Compare</button>
+      <button data-mode="source">Original</button>
+      <button data-mode="vector">Vector</button>
     </div>
-    <div class="row" id="viewer-toggle">
-      <button data-side="source">Original</button>
-      <button data-side="vector" aria-pressed="true">Vector</button>
+    <button id="v-zoom-out" class="ghost small" title="Zoom out">−</button>
+    <span class="zoom" id="v-zoom">100%</span>
+    <button id="v-zoom-in" class="ghost small" title="Zoom in">+</button>
+    <button id="v-fit" class="ghost small">Fit</button>
+    <div class="vgap"></div>
+    <button id="v-prev" class="ghost small" title="Previous">‹</button>
+    <button id="v-next" class="ghost small" title="Next">›</button>
+    <button id="v-reveal" class="ghost">Show in folder</button>
+    <button id="v-save" class="ghost">Save a copy…</button>
+  </header>
+
+  <div class="vstage" id="v-stage">
+    <div class="vcanvas" id="v-canvas">
+      <img class="vlayer" id="v-source" alt="">
+      <div class="vlayer" id="v-vector"></div>
+      <div class="vwipe" id="v-wipe"><span class="vgrip"></span></div>
     </div>
-    <div class="row">
-      <button class="quiet" id="viewer-reveal">Show in folder</button>
-      <button class="quiet" id="viewer-save">Save a copy…</button>
-    </div>
+    <div class="vtag left" id="v-tag-left">Original</div>
+    <div class="vtag right" id="v-tag-right">Vector</div>
   </div>
-  <div class="viewer-stage">
-    <div class="viewer-frame">
-      <img id="viewer-source" alt="">
-      <div id="viewer-vector"></div>
-    </div>
-  </div>
-  <div class="viewer-stats" id="viewer-stats"></div>
+
+  <footer class="vstats" id="v-stats"></footer>
 </div>
 
 <script src="app.js"></script>
