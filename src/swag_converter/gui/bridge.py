@@ -294,14 +294,33 @@ def _rejected(name: str, reason: str) -> dict[str, Any]:
     return {"added": [], "skipped": [{"name": name, "reason": reason}]}
 
 
+_scoring: bool | None = None
+
+
 def _scoring_available() -> bool:
-    """Whether the similarity score can be computed here."""
-    try:
-        from ..quality import _render  # noqa: F401
-        import cairosvg  # noqa: F401
-    except Exception:
-        return False
-    return True
+    """Whether the similarity score can actually be computed here.
+
+    Asking whether cairosvg imports is not the same question: it imports and
+    then fails to find a system cairo.  Render something instead, once, and
+    remember the answer.
+    """
+    global _scoring
+    if _scoring is None:
+        try:
+            from ..quality import _make_cairo_findable
+
+            _make_cairo_findable()
+            import cairosvg
+
+            cairosvg.svg2png(
+                bytestring=b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+                output_width=1,
+                output_height=1,
+            )
+            _scoring = True
+        except Exception:
+            _scoring = False
+    return _scoring
 
 
 def _thumbnail(path: Path, size: int = THUMBNAIL) -> str:

@@ -12,12 +12,56 @@ from pathlib import Path
 import numpy as np
 
 
+#: Where a system cairo usually lives, plus the bundle when frozen.
+_LIBRARY_DIRECTORIES = ("/opt/homebrew/lib", "/usr/local/lib", "/usr/lib")
+_cairo_search_installed = False
+
+
+def _make_cairo_findable() -> None:
+    """Point cairocffi at a cairo the dynamic loader will not find on its own.
+
+    macOS reads ``DYLD_FALLBACK_LIBRARY_PATH`` when a process starts, so
+    setting it from inside one is theatre.  cairocffi asks
+    ``ctypes.util.find_library`` first and opens whatever absolute path comes
+    back, which is something we *can* answer at runtime — including from
+    inside an app bundle, where the loader has never heard of Homebrew.
+    """
+    global _cairo_search_installed
+    if _cairo_search_installed or os.name == "nt":
+        return
+    _cairo_search_installed = True
+
+    import ctypes.util
+    import glob
+    import re
+    import sys
+
+    directories = [getattr(sys, "_MEIPASS", ""), *_LIBRARY_DIRECTORIES]
+    directories = [path for path in directories if path and Path(path).is_dir()]
+    if not directories:
+        return
+    original = ctypes.util.find_library
+
+    def find_library(name: str) -> str | None:
+        found = original(name)
+        if found:
+            return found
+        # cairocffi asks for "cairo-2"; the file is libcairo.2.dylib.
+        stem = re.sub(r"[-.]?\d+$", "", name)
+        stem = stem[3:] if stem.startswith("lib") else stem
+        for directory in directories:
+            for pattern in (f"lib{stem}.*.dylib", f"lib{stem}.dylib", f"lib{stem}.so.*"):
+                matches = sorted(glob.glob(str(Path(directory) / pattern)))
+                if matches:
+                    return matches[0]
+        return None
+
+    ctypes.util.find_library = find_library
+
+
 def _render(svg: Path, width: int, height: int) -> np.ndarray | None:
     try:
-        if os.name == "posix":
-            candidates = [path for path in ("/opt/homebrew/lib", "/usr/local/lib") if Path(path).exists()]
-            if candidates and not os.environ.get("DYLD_FALLBACK_LIBRARY_PATH"):
-                os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(candidates)
+        _make_cairo_findable()
         import cairosvg
         from io import BytesIO
         from PIL import Image

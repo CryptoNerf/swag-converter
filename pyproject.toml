@@ -36,7 +36,7 @@ heic = ["pillow-heif>=0.13"]
 # engine, so this adds a couple of megabytes rather than a whole browser.
 # HEIC comes with it: someone converting holiday photos should not have to
 # discover that the format their phone uses is an optional extra.
-gui = ["pywebview>=5.0", "pillow-heif>=0.13"]
+gui = ["pywebview>=5.0", "pillow-heif>=0.13", "CairoSVG>=2.7"]
 dev = ["pytest>=8.0", "CairoSVG>=2.7", "pywebview>=5.0", "pillow-heif>=0.13"]
 
 [project.scripts]

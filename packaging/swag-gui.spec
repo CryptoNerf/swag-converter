@@ -19,6 +19,21 @@ from PyInstaller.utils.hooks import (
 HERE = Path(SPECPATH).resolve()
 ROOT = HERE.parent
 
+def cairo_binaries() -> list[tuple[str, str]]:
+    """The cairo the similarity score renders through.
+
+    It is a system library, not a wheel, so nothing in the dependency graph
+    points PyInstaller at it.  Naming the file is enough — macholib follows
+    what it needs from there — and ``quality._make_cairo_findable`` looks in
+    the bundle directory at runtime, so no loader path has to be arranged.
+    """
+    for directory in ("/opt/homebrew/lib", "/usr/local/lib"):
+        candidate = Path(directory) / "libcairo.2.dylib"
+        if candidate.exists():
+            return [(str(candidate.resolve()), ".")]
+    return []
+
+
 hidden = [
     *collect_submodules("scipy.ndimage"),
     *collect_submodules("skimage.measure"),
@@ -28,10 +43,15 @@ hidden = [
     "PIL.ImageOps",
     # Registered at import time so phone photographs open at all.
     "pillow_heif",
+    # The similarity score; cairocffi reaches its library through ctypes.
+    "cairosvg",
+    "cairocffi",
 ]
 
 datas = [
     (str(ROOT / "src/swag_converter/gui/web"), "swag_converter/gui/web"),
+    *collect_data_files("cairosvg"),
+    *collect_data_files("cairocffi"),
     # The package reads its own version from the installed distribution, so
     # the bundle has to carry that metadata or it reports 0+unknown.
     *copy_metadata("swag-converter"),
@@ -51,7 +71,7 @@ analysis = Analysis(
     pathex=[str(ROOT / "src")],
     # pillow-heif carries libheif and its codecs; without them HEIC files
     # are offered by the dialog and then fail to open.
-    binaries=collect_dynamic_libs("pillow_heif"),
+    binaries=[*collect_dynamic_libs("pillow_heif"), *cairo_binaries()],
     datas=datas,
     hiddenimports=hidden,
     hookspath=[],
