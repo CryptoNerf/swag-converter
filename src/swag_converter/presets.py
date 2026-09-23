@@ -160,10 +160,18 @@ def adapt_to_content(
     clusters = int(settings.get("init_clusters", 40))
     floor = int(settings.get("min_clusters", 10))
     leaned = max(floor, int(round(clusters * (1.0 - 0.62 * share))))
-    if carrying_colors > 0:
-        headroom = float(settings.get("cluster_headroom", 2.0))
+
+    # The ceiling only applies where spare clusters would be spent on blends,
+    # which is flat artwork.  On a photograph every cluster describes real
+    # variation, and a count of covering balls badly understates what it
+    # needs: the same measure that says a lettering poster holds six colours
+    # says a photograph of foliage holds twelve.
+    gate = float(settings.get("cluster_cap_flatness", 0.35))
+    if carrying_colors > 0 and share >= gate:
+        headroom = float(settings.get("cluster_headroom", 1.0))
         ceiling = max(4, int(round(carrying_colors * headroom)))
         leaned = min(leaned, ceiling)
+
     settings["init_clusters"] = max(2, leaned)
     return settings
 

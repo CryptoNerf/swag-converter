@@ -57,23 +57,49 @@ class Analysis:
         )
 
 
-def _carrying_colors(rgb: np.ndarray, opaque: np.ndarray, share: float = 0.97) -> int:
-    """How few colours it takes to cover ``share`` of the opaque pixels.
+def _carrying_colors(
+    rgb: np.ndarray, opaque: np.ndarray, radius: float = 38.0, share: float = 0.97
+) -> int:
+    """How few colours put almost every pixel within ``radius`` of one of them.
 
-    The blends along an edge are many and cover about a percent of the
-    picture between them, so at this share they fall outside it and are not
-    counted — which is the point.  A black mark
-    on white answers two however soft its edges are, and clustering can then
-    be told not to spend twenty clusters describing the ramp between them.
+    Counting distinct values does not answer this.  A JPEG spreads one flat
+    fill across dozens of them — the lettering that prompted this measure
+    reported two hundred and sixty-five colours and is drawn in three — while
+    a gradient genuinely needs many.  Covering balls tell the two apart:
+    compression noise falls inside a ball, a ramp needs a new one every
+    ``radius`` along its length.
+
+    The count bounds how many clusters are worth spending.  Every cluster
+    beyond what the picture holds lands on the blend between two colours,
+    where it becomes a sliver along an edge.
     """
     if not opaque.any():
         return 0
-    bins = 32
-    quantised = (rgb[opaque].astype(np.int32) * bins) // 256
-    packed = (quantised[:, 0] * bins + quantised[:, 1]) * bins + quantised[:, 2]
-    counts = np.sort(np.bincount(packed, minlength=1))[::-1]
-    covered = np.cumsum(counts) / max(1, counts.sum())
-    return int(np.searchsorted(covered, share) + 1)
+
+    # Coarse bins first: greedy covering over a few hundred populated cells
+    # rather than over every pixel.
+    step = 8
+    cells = (rgb[opaque] / step).astype(np.int32)
+    levels = 256 // step
+    packed = (cells[:, 0] * levels + cells[:, 1]) * levels + cells[:, 2]
+    unique, counts = np.unique(packed, return_counts=True)
+    blue = unique % levels
+    green = (unique // levels) % levels
+    red = unique // (levels * levels)
+    centres = np.stack([red, green, blue], axis=1).astype(np.float32) * step + step / 2.0
+
+    total = counts.sum()
+    claimed = np.zeros(len(unique), dtype=bool)
+    covered = 0.0
+    taken = 0
+    while covered < share * total and not claimed.all():
+        candidate = int(np.argmax(np.where(claimed, -1, counts)))
+        reach = np.linalg.norm(centres - centres[candidate], axis=1) <= radius
+        newly = reach & ~claimed
+        claimed |= newly
+        covered += counts[newly].sum()
+        taken += 1
+    return taken
 
 
 def analyze(pixels: np.ndarray, sample_edge: int = 256) -> Analysis:

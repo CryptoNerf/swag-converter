@@ -288,7 +288,9 @@ def build_segmentation(rgba: np.ndarray, settings: dict[str, Any]) -> Segmentati
     # Pick the speck threshold straight from the size distribution so the
     # count lands under the cap in a single absorption pass.
     components = _split_blend_components(
-        components, features, inside, scale, float(settings.get("blend_tolerance", 9.0))
+        components, features, inside, scale,
+        float(settings.get("blend_tolerance", 9.0)),
+        int(settings.get("blend_smoothing", 2)),
     )
 
     max_initial = max(16, int(settings.get("max_initial_regions", 420)))
@@ -403,12 +405,42 @@ def _component_adjacency(
     return graph
 
 
+def _smooth_along_band(
+    position: np.ndarray, indices: np.ndarray, shape: tuple[int, int], radius: int
+) -> np.ndarray:
+    """Average ``position`` over each pixel's neighbours within the band.
+
+    Normalised convolution: the sum over a window divided by how many band
+    pixels the window actually held, so the average never leaks in the zeros
+    that stand for everything outside.
+    """
+    if radius < 1 or indices.size == 0:
+        return position
+    rows, columns = np.divmod(indices, shape[1])
+    top, bottom = rows.min(), rows.max() + 1
+    left, right = columns.min(), columns.max() + 1
+    height, width = bottom - top, right - left
+    if height * width > 64_000_000:      # a band spanning the whole image
+        return position
+    values = np.zeros((height, width), dtype=np.float64)
+    weights = np.zeros((height, width), dtype=np.float64)
+    local_rows, local_columns = rows - top, columns - left
+    values[local_rows, local_columns] = position
+    weights[local_rows, local_columns] = 1.0
+    size = 2 * radius + 1
+    summed = ndimage.uniform_filter(values, size=size, mode="constant")
+    counted = ndimage.uniform_filter(weights, size=size, mode="constant")
+    smoothed = np.divide(summed, counted, out=values.copy(), where=counted > 1e-9)
+    return smoothed[local_rows, local_columns]
+
+
 def _split_blend_components(
     components: np.ndarray,
     features: np.ndarray,
     inside: np.ndarray,
     scale: int,
     tolerance: float,
+    smoothing: int = 2,
 ) -> np.ndarray:
     """Give the anti-aliased border back to the shapes it came from.
 
@@ -528,26 +560,44 @@ def _split_blend_components(
             continue
         colours = features[rows[usable]]
         distance = np.linalg.norm(colours[:, None, :] - palette[None, :, :], axis=2)
-        ranked = np.argsort(distance, axis=1)
-        nearest = touching[ranked[:, 0]]
+        nearest_index = np.argmin(distance, axis=1)
 
-        # A pixel is part of a blend when its colour lies *on the way* from
-        # one bordering shape to another — not when it is close to one of
-        # them.  Mid-grey between black and white is far from both and is
-        # still a blend; a red hairline between them is no further away and
-        # is not.  So the test is how far the colour sits off the line
-        # joining the two nearest shapes, and blends go to the nearer end.
-        left = palette[ranked[:, 0]]
-        right = palette[ranked[:, 1]]
+        # One axis for the whole chain, not one per pixel.  Taking each
+        # pixel's own two nearest shapes puts it below the halfway mark by
+        # construction, which decides the question before it is asked and
+        # leaves nothing for smoothing to do.  The axis runs between the two
+        # shapes most of the band is drawn towards.
+        popularity = np.bincount(nearest_index, minlength=len(touching))
+        ends = np.argsort(popularity)[::-1][:2]
+        if popularity[ends].min() == 0:
+            # Everything leans one way: no boundary to place, only a rim.
+            flat_result[pixels[usable]] = touching[nearest_index]
+            continue
+        left, right = palette[ends[0]], palette[ends[1]]
         span = right - left
-        length = np.einsum("ij,ij->i", span, span)
+        length = float(span @ span)
+        if length < 1e-9:
+            continue
         offset = colours - left
-        position = np.divide(np.einsum("ij,ij->i", offset, span), length,
-                             out=np.zeros(len(colours)), where=length > 1e-9)
+        position = (offset @ span) / length
         perpendicular = np.linalg.norm(offset - position[:, None] * span, axis=1)
+
+        # A pixel belongs to the blend when its colour lies *on the way* from
+        # one shape to the other — not when it is close to either.  Mid-grey
+        # between black and white is far from both and is still a blend; a
+        # red hairline between them is no further away and is not.
         between = (position >= -0.15) & (position <= 1.15) & (perpendicular <= tolerance)
 
-        chosen = np.where(between, nearest, flat_components[pixels[usable]])
+        # Deciding each pixel on its own colour dithers the boundary: a
+        # compressed or photographed edge carries noise, so neighbours land
+        # on opposite sides and the contour comes out as a row of teeth —
+        # thousands of nodes, and ragged at any magnification.  Smoothing how
+        # far along the blend each pixel sits puts the boundary where the
+        # band as a whole crosses halfway.
+        place = _smooth_along_band(position, pixels[usable], chains.shape, smoothing)
+        side = np.where(place <= 0.5, ends[0], ends[1])
+
+        chosen = np.where(between, touching[side], touching[nearest_index])
         flat_result[pixels[usable]] = chosen
     return result
 

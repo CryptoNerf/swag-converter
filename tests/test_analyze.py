@@ -68,3 +68,52 @@ def test_fully_transparent_input_is_handled() -> None:
     result = analyze(np.zeros((32, 32, 4), dtype=np.uint8))
     assert result.kind == "illustration"
     assert result.confidence == 0.0
+
+
+def test_compression_noise_does_not_inflate_the_colour_count() -> None:
+    """A JPEG spreads one flat fill across dozens of distinct values.
+
+    Counting those told the tracer a lettering poster in three colours held
+    two hundred and sixty-five, so it spent twenty-two clusters and put the
+    spare ones on the ramp along every edge. Covering balls answer the
+    question that was meant: how few colours is the picture drawn in.
+    """
+    import io
+
+    from PIL import Image
+
+    from swag_converter.analyze import analyze
+
+    flat = np.zeros((240, 240, 4), dtype=np.uint8)
+    flat[:, :, 3] = 255
+    flat[:, :, :3] = (244, 206, 74)
+    flat[60:180, 40:200, :3] = (38, 42, 58)
+
+    buffer = io.BytesIO()
+    Image.fromarray(flat, "RGBA").convert("RGB").save(buffer, format="JPEG", quality=72)
+    buffer.seek(0)
+    noisy = np.asarray(Image.open(buffer).convert("RGBA"), dtype=np.uint8)
+
+    clean = analyze(flat)
+    compressed = analyze(noisy)
+
+    assert clean.carrying_colors <= 4
+    assert compressed.carrying_colors <= 6, (
+        f"compression inflated the count to {compressed.carrying_colors}"
+    )
+    assert compressed.unique_colors > 50, "the fixture is not actually noisy"
+
+
+def test_a_gradient_still_needs_many_colours() -> None:
+    """The ceiling must not starve a ramp, which genuinely holds many."""
+    from swag_converter.analyze import analyze
+
+    size = 256
+    ramp = np.zeros((size, size, 4), dtype=np.uint8)
+    ramp[:, :, 3] = 255
+    across = np.linspace(0, 255, size, dtype=np.uint8)
+    ramp[:, :, 0] = across[None, :]
+    ramp[:, :, 1] = across[:, None]
+    ramp[:, :, 2] = 128
+
+    assert analyze(ramp).carrying_colors >= 8
