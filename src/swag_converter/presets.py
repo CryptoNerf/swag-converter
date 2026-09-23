@@ -136,21 +136,35 @@ def build(preset: str, quality: str = "balanced", overrides: dict[str, Any] | No
     return settings
 
 
-def adapt_to_content(settings: dict[str, Any], flatness: float) -> dict[str, Any]:
+def adapt_to_content(
+    settings: dict[str, Any], flatness: float, carrying_colors: int = 0
+) -> dict[str, Any]:
     """Spend colour clusters on colour, not on anti-aliasing.
 
     Every cluster beyond the colours an image actually holds lands on the
     blend between two of them, and those blends are thin: they shatter a
     letter into fragments that then absorb into the page, which is how body
-    copy came out as gibberish.  Flat artwork therefore wants far fewer
-    clusters than a photograph, and ``flatness`` already measures exactly
-    that — the share of the picture that is one solid colour.
+    copy came out as gibberish, and they survive as grey slivers along every
+    edge, which is what makes a plain black mark on white look smudged.
+
+    Two measurements bound it.  ``flatness`` — the share of the picture that
+    is one solid colour — says how far to lean away from the preset's number.
+    ``carrying_colors`` — how few colours cover almost all of the pixels —
+    is a ceiling: a mark in two colours has nothing for a thirteenth cluster
+    to describe except the ramp between them.  The headroom above it leaves
+    room for shading within a colour, which is why a shaded sphere is not
+    capped down to the handful of colours it appears to hold.
     """
     settings = dict(settings)
     share = min(1.0, max(0.0, float(flatness)))
     clusters = int(settings.get("init_clusters", 40))
     floor = int(settings.get("min_clusters", 10))
-    settings["init_clusters"] = max(floor, int(round(clusters * (1.0 - 0.62 * share))))
+    leaned = max(floor, int(round(clusters * (1.0 - 0.62 * share))))
+    if carrying_colors > 0:
+        headroom = float(settings.get("cluster_headroom", 2.0))
+        ceiling = max(4, int(round(carrying_colors * headroom)))
+        leaned = min(leaned, ceiling)
+    settings["init_clusters"] = max(2, leaned)
     return settings
 
 

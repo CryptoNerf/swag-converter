@@ -78,7 +78,7 @@ def convert(
     chosen = analysis.kind if preset == "auto" else preset
 
     settings = build(chosen, quality, overrides)
-    settings = adapt_to_content(settings, analysis.flatness)
+    settings = adapt_to_content(settings, analysis.flatness, analysis.carrying_colors)
     settings = adapt_to_size(settings, image.width, image.height)
     if overrides:
         # An explicit override outranks anything measured from the image.

@@ -469,9 +469,33 @@ def _split_blend_components(
     if chain_count == 0:
         return components
 
-    solid_labels = np.where(solid[components], components, 0)
-    reach = ndimage.grey_dilation(solid_labels, size=3)
-    borders = np.where(is_blend & (reach > 0), reach, 0)
+    # Which solid shapes each chain borders.  Not by dilating the label
+    # image: grey dilation reports the largest label in a neighbourhood, not
+    # every label in it, so a band lying between shapes 1 and 2 would be
+    # recorded as touching only 2 — and a chain that appears to touch one
+    # shape is left alone, which is why this used to do nothing at all.
+    first, second = _component_edges(components, top)
+    chain_lookup = np.zeros(top, dtype=np.int32)
+    present = components > 0
+    chain_lookup[components[present]] = chains[present]
+    touching_solid: dict[int, set[int]] = {}
+    for a, b in zip(first.tolist(), second.tolist()):
+        for near, far in ((a, b), (b, a)):
+            if solid[near] or not solid[far]:
+                continue
+            touching_solid.setdefault(int(chain_lookup[near]), set()).add(far)
+
+    # Chains that run along the outside of the silhouette have only one
+    # shape to belong to.  The fade there is carried by the alpha channel,
+    # not by colour, so a band of greys along it is not a shape — it is the
+    # edge of one, and it takes that shape's colour.
+    outside = np.zeros(chains.shape, dtype=bool)
+    beyond = components == 0
+    outside[:, :-1] |= beyond[:, 1:]
+    outside[:, 1:] |= beyond[:, :-1]
+    outside[:-1, :] |= beyond[1:, :]
+    outside[1:, :] |= beyond[:-1, :]
+    rims = set(np.unique(chains[outside & is_blend]).tolist()) - {0}
 
     result = components.copy()
     flat_chains = chains.ravel()
@@ -489,8 +513,12 @@ def _split_blend_components(
         pixels = order[starts[chain]:stops[chain]]
         if pixels.size == 0:
             continue
-        touching = np.unique(borders.ravel()[pixels])
-        touching = touching[touching > 0]
+        touching = np.array(sorted(touching_solid.get(chain + 1, ())), dtype=np.int64)
+        if touching.size == 1 and (chain + 1) in rims:
+            # One shape on the inside, transparency on the outside: the whole
+            # band is that shape's edge.
+            flat_result[pixels] = touching[0]
+            continue
         if touching.size < 2:
             continue  # nothing to divide it between; leave it a shape
         palette = means[touching]
@@ -500,12 +528,26 @@ def _split_blend_components(
             continue
         colours = features[rows[usable]]
         distance = np.linalg.norm(colours[:, None, :] - palette[None, :, :], axis=2)
-        nearest = touching[np.argmin(distance, axis=1)]
-        # Only where the pixel really is a blend of what it touches; a thin
-        # shape with a colour of its own keeps it.
-        closest = distance.min(axis=1)
-        keep = closest <= tolerance
-        chosen = np.where(keep, nearest, flat_components[pixels[usable]])
+        ranked = np.argsort(distance, axis=1)
+        nearest = touching[ranked[:, 0]]
+
+        # A pixel is part of a blend when its colour lies *on the way* from
+        # one bordering shape to another — not when it is close to one of
+        # them.  Mid-grey between black and white is far from both and is
+        # still a blend; a red hairline between them is no further away and
+        # is not.  So the test is how far the colour sits off the line
+        # joining the two nearest shapes, and blends go to the nearer end.
+        left = palette[ranked[:, 0]]
+        right = palette[ranked[:, 1]]
+        span = right - left
+        length = np.einsum("ij,ij->i", span, span)
+        offset = colours - left
+        position = np.divide(np.einsum("ij,ij->i", offset, span), length,
+                             out=np.zeros(len(colours)), where=length > 1e-9)
+        perpendicular = np.linalg.norm(offset - position[:, None] * span, axis=1)
+        between = (position >= -0.15) & (position <= 1.15) & (perpendicular <= tolerance)
+
+        chosen = np.where(between, nearest, flat_components[pixels[usable]])
         flat_result[pixels[usable]] = chosen
     return result
 

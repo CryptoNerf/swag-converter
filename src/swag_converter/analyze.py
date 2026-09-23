@@ -38,6 +38,10 @@ class Analysis:
     spread: float             # share of pixels carrying any fine detail
     flatness: float           # share of pixels in near-uniform areas
     unique_colors: int
+    #: How few colours carry almost all of the picture.  Distinct from
+    #: ``unique_colors``, which counts every shade including the blends along
+    #: an edge: those are numerous and cover almost nothing.
+    carrying_colors: int
     transparency: float
     confidence: float
 
@@ -53,6 +57,25 @@ class Analysis:
         )
 
 
+def _carrying_colors(rgb: np.ndarray, opaque: np.ndarray, share: float = 0.97) -> int:
+    """How few colours it takes to cover ``share`` of the opaque pixels.
+
+    The blends along an edge are many and cover about a percent of the
+    picture between them, so at this share they fall outside it and are not
+    counted — which is the point.  A black mark
+    on white answers two however soft its edges are, and clustering can then
+    be told not to spend twenty clusters describing the ramp between them.
+    """
+    if not opaque.any():
+        return 0
+    bins = 32
+    quantised = (rgb[opaque].astype(np.int32) * bins) // 256
+    packed = (quantised[:, 0] * bins + quantised[:, 1]) * bins + quantised[:, 2]
+    counts = np.sort(np.bincount(packed, minlength=1))[::-1]
+    covered = np.cumsum(counts) / max(1, counts.sum())
+    return int(np.searchsorted(covered, share) + 1)
+
+
 def analyze(pixels: np.ndarray, sample_edge: int = 256) -> Analysis:
     height, width = pixels.shape[:2]
     step = max(1, int(max(height, width) / sample_edge))
@@ -63,7 +86,7 @@ def analyze(pixels: np.ndarray, sample_edge: int = 256) -> Analysis:
     opaque = alpha > 0.5
     transparency = float((alpha < 0.99).mean())
     if opaque.sum() < 32:
-        return Analysis("illustration", 0.0, 0.0, 1.0, 0, transparency, 0.0)
+        return Analysis("illustration", 0.0, 0.0, 1.0, 0, 0, transparency, 0.0)
 
     luma = rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
     contrast = ndimage.maximum_filter(luma, size=3) - ndimage.minimum_filter(luma, size=3)
@@ -74,6 +97,7 @@ def analyze(pixels: np.ndarray, sample_edge: int = 256) -> Analysis:
     quantised = rgb.astype(np.int32) >> 3
     packed = (quantised[:, :, 0] << 10) | (quantised[:, :, 1] << 5) | quantised[:, :, 2]
     unique_colors = int(np.unique(packed[opaque]).size)
+    carrying_colors = _carrying_colors(rgb, opaque)
 
     if texture >= PHOTO_TEXTURE and spread >= PHOTO_SPREAD:
         kind = "photo"
@@ -85,4 +109,5 @@ def analyze(pixels: np.ndarray, sample_edge: int = 256) -> Analysis:
         kind = "illustration"
         confidence = 0.5 + min(0.45, abs(texture - PHOTO_TEXTURE) / (PHOTO_TEXTURE * 2))
     return Analysis(kind, round(texture, 3), round(spread, 3), round(flatness, 3),
-                    unique_colors, round(transparency, 3), round(confidence, 2))
+                    unique_colors, carrying_colors,
+                    round(transparency, 3), round(confidence, 2))

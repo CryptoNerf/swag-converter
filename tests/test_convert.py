@@ -9,7 +9,7 @@ from collections import Counter
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from swag_converter.convert import convert
 from swag_converter.presets import PRESETS, build
@@ -197,3 +197,30 @@ def test_a_flat_region_is_painted_flat(tmp_path: Path) -> None:
     text = result.destination.read_text(encoding="utf-8")
     pale = re.findall(r'fill="#(F[0-9A-F]{5})"', text)
     assert pale, "the pale square lost its flat fill"
+
+
+def test_a_two_colour_mark_traces_to_two_shapes(tmp_path: Path) -> None:
+    """A black mark on white must not come back ringed with grey.
+
+    Anti-aliasing along the silhouette used to cluster into slivers of its
+    own — a plain mark traced to two hundred regions, ninety of them
+    intermediate greys, and looked smudged at any magnification. The fade
+    there belongs to the alpha channel, not to a shape.
+    """
+    drawn = Image.new("L", (1200, 1200), 255)
+    pen = ImageDraw.Draw(drawn)
+    pen.arc([150, 150, 1050, 1050], start=200, end=70, fill=0, width=120)
+    pen.ellipse([520, 140, 740, 360], fill=0)
+    source = tmp_path / "mark.png"
+    drawn.resize((600, 600), Image.LANCZOS).convert("RGB").save(source)
+
+    result = convert(source, tmp_path / "mark.svg", measure=False)
+    assert result.regions <= 6, f"a two-colour mark became {result.regions} regions"
+
+    text = result.destination.read_text(encoding="utf-8")
+    fills = re.findall(r'fill="#([0-9A-F]{6})"', text)
+    def tone(value: str) -> float:
+        red, green, blue = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+        return red * 0.299 + green * 0.587 + blue * 0.114
+    muddy = [value for value in fills if 40 <= tone(value) <= 215]
+    assert not muddy, f"the mark is ringed with intermediate greys: {muddy}"
