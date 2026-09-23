@@ -40,10 +40,17 @@ class Job:
     finished: float | None = None
     #: Dropped files are copied into a directory we own and delete on exit.
     temporary: bool = False
+    #: What produced ``result``.  A finished job whose settings no longer
+    #: match the ones on screen is out of date, not done.
+    settings_used: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
         return self.source.name
+
+    def outdated(self, options: dict[str, Any]) -> bool:
+        """Would converting it again produce something different?"""
+        return self.status != "done" or self.settings_used != options
 
     def state(self) -> dict[str, Any]:
         elapsed = None
@@ -110,6 +117,8 @@ class Queue:
         self._running: dict[str, mp.Process] = {}
         self._context = mp.get_context("spawn")
         self._channel: Any = None
+        self._options: dict[str, Any] = {}
+        self._signature: dict[str, Any] = {}
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._workers = workers or max(1, min(4, (os.cpu_count() or 2) - 1))
@@ -150,6 +159,18 @@ class Queue:
         with self._lock:
             return [self._jobs[identifier] for identifier in self._order]
 
+    def outdated(self, options: dict[str, Any]) -> int:
+        """How many jobs pressing Convert would actually run."""
+        with self._lock:
+            return sum(1 for job in self._jobs.values() if job.outdated(options))
+
+    def rerun_all(self) -> None:
+        """Forget what was converted, so everything runs again."""
+        with self._lock:
+            for job in self._jobs.values():
+                if job.status != "running":
+                    job.settings_used = None
+
     def job(self, identifier: str) -> Job | None:
         with self._lock:
             return self._jobs.get(identifier)
@@ -161,13 +182,28 @@ class Queue:
 
     # -- running -----------------------------------------------------------
 
-    def start(self, options: dict[str, Any], destination_for: Callable[[Job], Path]) -> None:
+    def start(
+        self,
+        options: dict[str, Any],
+        destination_for: Callable[[Job], Path],
+        signature: dict[str, Any] | None = None,
+    ) -> None:
+        """``options`` go to the tracer; ``signature`` decides what is stale.
+
+        They differ by the output folder: the tracer is handed a path, not a
+        folder, but moving the folder still means a finished job's result is
+        in the wrong place.
+        """
         with self._lock:
             if self._running or self._pending:
                 return
             self._options = dict(options)
+            self._signature = dict(signature if signature is not None else options)
             for job in self._jobs.values():
-                if job.status in ("queued", "failed", "cancelled"):
+                # A finished job is only finished for the settings that
+                # finished it.  Change the detail and press Convert and the
+                # expectation is plainly that it runs again.
+                if job.outdated(self._signature):
                     job.destination = destination_for(job)
                     job.status = "queued"
                     job.stage = ""
@@ -253,6 +289,7 @@ class Queue:
                 elif kind == "done":
                     job.status, job.result, job.stage = "done", payload, ""
                     job.finished = time.monotonic()
+                    job.settings_used = dict(self._signature)
                 elif kind == "failed":
                     job.status, job.error, job.stage = "failed", payload, ""
                     job.finished = time.monotonic()

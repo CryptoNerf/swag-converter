@@ -357,3 +357,97 @@ def test_an_unknown_stage_does_not_break_the_bar() -> None:
 
     job = Job(identifier="x", source=Path("a.png"), destination=Path("a.svg"), stage="doing something new")
     assert job.state()["progress"] == 0
+
+
+# -- converting again, which used to be impossible ---------------------------
+
+@pytest.mark.slow
+def test_changing_a_setting_makes_a_finished_job_run_again(
+    tmp_path: Path, bridge: Bridge
+) -> None:
+    """Press Convert, dislike the result, change the detail, press Convert.
+
+    Finished jobs were never requeued, so the second press did nothing at all
+    and the only way out was to remove every card and add them back.
+    """
+    out = tmp_path / "out"
+    out.mkdir()
+    bridge.update_settings({"quality": "fast", "measure": False, "output_dir": str(out)})
+    bridge._accept([_image(tmp_path, "one.png")])
+
+    bridge.start()
+    _settle(bridge)
+    first = bridge.poll()
+    assert first["jobs"][0]["status"] == "done"
+    assert first["outdated"] == 0
+    assert first["jobs"][0]["outdated"] is False
+
+    bridge.update_settings({"quality": "balanced"})
+    changed = bridge.poll()
+    assert changed["outdated"] == 1
+    assert changed["jobs"][0]["outdated"] is True
+    assert changed["jobs"][0]["status"] == "done"  # still viewable meanwhile
+
+    bridge.start()
+    assert bridge.poll()["busy"]
+    _settle(bridge)
+    again = bridge.poll()
+    assert again["jobs"][0]["status"] == "done"
+    assert again["outdated"] == 0
+    assert again["jobs"][0]["result"]["quality"] == "balanced"
+
+
+@pytest.mark.slow
+def test_convert_again_reruns_what_the_settings_call_current(
+    tmp_path: Path, bridge: Bridge
+) -> None:
+    """With nothing out of date, the button offers to do it over anyway."""
+    out = tmp_path / "out"
+    out.mkdir()
+    bridge.update_settings({"quality": "fast", "measure": False, "output_dir": str(out)})
+    bridge._accept([_image(tmp_path, "one.png")])
+    bridge.start()
+    _settle(bridge)
+    assert bridge.poll()["outdated"] == 0
+
+    assert bridge.start()["busy"] is False      # nothing to do, correctly
+    assert bridge.convert_again()["busy"] is True
+    _settle(bridge)
+    assert bridge.poll()["jobs"][0]["status"] == "done"
+
+
+@pytest.mark.slow
+def test_a_new_image_does_not_drag_the_finished_ones_with_it(
+    tmp_path: Path, bridge: Bridge
+) -> None:
+    """Adding one more should convert one more, not the whole batch again."""
+    out = tmp_path / "out"
+    out.mkdir()
+    bridge.update_settings({"quality": "fast", "measure": False, "output_dir": str(out)})
+    bridge._accept([_image(tmp_path, "one.png")])
+    bridge.start()
+    _settle(bridge)
+    stamp = bridge.poll()["jobs"][0]["elapsed"]
+
+    bridge._accept([_image(tmp_path, "two.png")])
+    assert bridge.poll()["outdated"] == 1
+    bridge.start()
+    _settle(bridge)
+
+    jobs = bridge.poll()["jobs"]
+    assert [job["status"] for job in jobs] == ["done", "done"]
+    assert jobs[0]["elapsed"] == stamp, "the finished one was converted again"
+
+
+def test_moving_the_output_folder_counts_as_a_change(tmp_path: Path, bridge: Bridge) -> None:
+    """The result would land somewhere else, so it is not current any more."""
+    bridge.update_settings({"output_dir": str(tmp_path)})
+    before = bridge._tracing_options()
+    bridge.update_settings({"output_dir": str(tmp_path / "elsewhere")})
+    assert bridge._tracing_options() != before
+
+
+def _settle(bridge: Bridge, limit: float = 180) -> None:
+    deadline = time.monotonic() + limit
+    while bridge.poll()["busy"] and time.monotonic() < deadline:
+        time.sleep(0.15)

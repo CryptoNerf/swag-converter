@@ -53,12 +53,18 @@ const PRESETS = {
 };
 
 const QUALITY = {
-  fast: ['Quick', 'Fewest shapes. Smallest file, least detail.'],
-  balanced: ['Balanced', 'The default. Detail worth keeping, without the wait.'],
-  max: ['Maximum', 'Most shapes. Slowest and largest; flat artwork barely differs.'],
+  fast: ['Quick', 'Few shapes. Smallest file and the shortest wait.'],
+  balanced: ['Balanced', 'As many shapes as the picture is worth. The default.'],
+  max: ['Maximum', 'Most shapes. Slowest and largest; flat artwork barely changes.'],
 };
 
 const EDGES = [['640', 'Small'], ['1024', 'Normal'], ['1600', 'Large'], ['2400', 'Huge'], ['0', 'Full']];
+
+// The one sentence that separates the two settings people confuse.
+const EDGE_HINT =
+  'The size the picture is scaled to before tracing starts. A larger one lets '
+  + 'the tracer notice finer things; it does not on its own let it draw more — '
+  + 'that is Detail above.';
 
 const BACKGROUNDS = {
   auto: ['If flat', 'Cleared only when the image really has a plain backdrop.'],
@@ -70,6 +76,8 @@ const state = {
   info: null,
   jobs: [],
   busy: false,
+  outdated: 0,
+  again: false,
   thumbs: new Map(),
   timer: null,
   view: null,          // {id, name, svg, source, result}
@@ -99,6 +107,7 @@ async function boot() {
     $('quality-hint').textContent = QUALITY[v][1];
   });
   buildSeg($('edge'), EDGES, String(s.max_edge), (v) => pushSettings({ max_edge: v }));
+  $('edge-hint').textContent = EDGE_HINT;
   buildSeg($('background'), Object.entries(BACKGROUNDS).map(([k, v]) => [k, v[0]]), s.background, (v) => {
     pushSettings({ background: v });
     $('background-hint').textContent = BACKGROUNDS[v][1];
@@ -153,7 +162,12 @@ function buildSeg(host, pairs, chosen, onPick) {
   }
 }
 
-async function pushSettings(patch) { await call('update_settings', patch); }
+async function pushSettings(patch) {
+  await call('update_settings', patch);
+  // Changing a setting makes finished results out of date; the button and
+  // the cards say so straight away rather than at the next poll.
+  await refresh();
+}
 
 /* ------------------------------------------------------------------- grid */
 
@@ -168,20 +182,27 @@ function render() {
 
   const done = jobs.filter((j) => j.status === 'done');
   const failed = jobs.filter((j) => j.status === 'failed').length;
+  const stale = done.filter((j) => j.outdated).length;
   state.order = done.map((j) => j.id);
 
   $('tally').innerHTML = jobs.length
     ? `<b>${jobs.length}</b> image${jobs.length > 1 ? 's' : ''}` +
       (done.length ? ` · <b>${done.length}</b> converted` : '') +
-      (failed ? ` · <b>${failed}</b> failed` : '')
+      (failed ? ` · <b>${failed}</b> failed` : '') +
+      (stale && !state.busy ? ` · settings changed since` : '')
     : '';
 
   const finished = done.length + failed;
   $('batch').hidden = !state.busy;
   $('batch-fill').style.width = jobs.length ? (100 * finished / jobs.length) + '%' : '0';
 
+  // Nothing out of date means every result already matches these settings.
+  // The button then offers the only thing left worth doing: do it again.
+  state.again = jobs.length > 0 && state.outdated === 0;
   $('convert').disabled = state.busy || jobs.length === 0;
-  $('convert').textContent = state.busy ? 'Converting…' : 'Convert';
+  $('convert').textContent = state.busy
+    ? 'Converting…'
+    : state.again ? 'Convert again' : 'Convert';
   $('cancel').hidden = !state.busy;
   $('clear').hidden = !jobs.length || state.busy;
 }
@@ -208,11 +229,13 @@ function card(job) {
     shot.appendChild(scrim);
   }
 
-  const pill = document.createElement('div');
-  pill.className = 'pill ' + (job.status === 'done' ? 'good' : job.status === 'failed' ? 'bad' : 'wait');
-  pill.textContent = { queued: 'waiting', running: 'working', done: 'done',
-                       failed: 'failed', cancelled: 'stopped' }[job.status] || job.status;
-  if (job.status !== 'running') shot.appendChild(pill);
+  if (job.status !== 'running') {
+    const [label, tone] = badge(job);
+    const pill = document.createElement('div');
+    pill.className = 'pill ' + tone;
+    pill.textContent = label;
+    shot.appendChild(pill);
+  }
 
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -221,7 +244,8 @@ function card(job) {
   name.textContent = job.name;
   name.title = job.name;
   const sub = document.createElement('div');
-  sub.className = 'sub' + (job.status === 'failed' ? ' bad' : job.status === 'done' ? ' good' : '');
+  sub.className = 'sub'
+    + (job.status === 'failed' ? ' bad' : (job.status === 'done' && !job.outdated) ? ' good' : '');
   sub.textContent = describe(job);
   meta.append(name, sub);
 
@@ -262,9 +286,19 @@ function ring(fraction) {
   return svg;
 }
 
+function badge(job) {
+  // "waiting" is only true of a queue that is moving. Before Convert is
+  // pressed nothing is waiting on anything, and saying so reads as a stall.
+  if (job.status === 'queued') return state.busy ? ['waiting', 'wait'] : ['ready', 'wait'];
+  if (job.status === 'done') return job.outdated ? ['out of date', 'wait'] : ['done', 'good'];
+  if (job.status === 'failed') return ['failed', 'bad'];
+  if (job.status === 'cancelled') return ['stopped', 'wait'];
+  return [job.status, 'wait'];
+}
+
 function describe(job) {
   switch (job.status) {
-    case 'queued': return 'in the queue';
+    case 'queued': return state.busy ? 'in the queue' : 'not converted yet';
     case 'running': return job.stage ? job.stage + '…' : 'starting…';
     case 'cancelled': return 'stopped before it finished';
     case 'failed': return job.error || 'failed';
@@ -272,6 +306,7 @@ function describe(job) {
       const r = job.result || {};
       const bits = [`${size(r.svg_bytes)}`, `${r.regions} shapes`];
       if (r.similarity != null) bits.push(`${(r.similarity * 100).toFixed(1)}% match`);
+      if (job.outdated) bits.push('settings changed');
       return bits.join(' · ');
     }
     default: return '';
@@ -289,6 +324,7 @@ function apply(snapshot) {
   if (!snapshot) return;
   state.jobs = snapshot.jobs;
   state.busy = snapshot.busy;
+  state.outdated = snapshot.outdated || 0;
   render();
   pace();
 }
@@ -491,7 +527,8 @@ function wire() {
   $('add').onclick = add;
   $('add-inline').onclick = add;
 
-  $('convert').onclick = async () => apply(await call('start'));
+  $('convert').onclick = async () =>
+    apply(await call(state.again ? 'convert_again' : 'start'));
   $('cancel').onclick = async () => apply(await call('cancel'));
   $('clear').onclick = async () => { state.thumbs.clear(); apply(await call('clear_all')); };
 

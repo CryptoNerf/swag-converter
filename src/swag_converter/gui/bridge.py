@@ -175,23 +175,52 @@ class Bridge:
 
     # -- running -----------------------------------------------------------
 
-    def start(self) -> dict[str, Any]:
-        options = {
+    def _tracing_options(self) -> dict[str, Any]:
+        """Exactly what a conversion depends on, for comparing runs.
+
+        The output folder is in here because moving it means the result
+        belongs somewhere else, which is also a reason to convert again.
+        """
+        return {
             "preset": self.settings["preset"],
             "quality": self.settings["quality"],
             "max_edge": int(self.settings["max_edge"]),
             "remove_background": self.settings["background"],
             "measure": bool(self.settings["measure"]) and _scoring_available(),
+            "output_dir": self.settings.get("output_dir", ""),
         }
-        self.queue.start(options, lambda job: self._destination_for_path(job.source))
+
+    def start(self) -> dict[str, Any]:
+        options = self._tracing_options()
+        self.queue.start(
+            {key: value for key, value in options.items() if key != "output_dir"},
+            lambda job: self._destination_for_path(job.source),
+            signature=options,
+        )
         return self.poll()
+
+    def convert_again(self) -> dict[str, Any]:
+        """Run everything once more, even what the settings say is current."""
+        self.queue.rerun_all()
+        return self.start()
 
     def cancel(self) -> dict[str, Any]:
         self.queue.cancel()
         return self.poll()
 
     def poll(self) -> dict[str, Any]:
-        return {"busy": self.queue.busy, "jobs": [job.state() for job in self.queue.jobs()]}
+        options = self._tracing_options()
+        jobs = []
+        for job in self.queue.jobs():
+            state = job.state()
+            state["outdated"] = job.outdated(options)
+            jobs.append(state)
+        return {
+            "busy": self.queue.busy,
+            "jobs": jobs,
+            # How many the Convert button would actually run, so it can say so.
+            "outdated": sum(1 for state in jobs if state["outdated"]),
+        }
 
     def remove(self, identifier: str) -> dict[str, Any]:
         self.queue.remove(identifier)
