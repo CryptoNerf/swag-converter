@@ -136,6 +136,9 @@ def main(argv: list[str] | None = None) -> int:
         bridge.shutdown()
 
     window.events.closing += on_closing
+    # Look for a newer build once the window is up, never before: a slow or
+    # unreachable network must not delay anything the user can see.
+    window.events.loaded += bridge.start_update_check
 
     webview.start()
     bridge.shutdown()

@@ -68,6 +68,30 @@ Pillow — installs as arm64 on Apple Silicon, so a universal binary is not
 available to build from. An Intel build would need an Intel Python and an
 Intel wheel set.
 
+## How updates reach people
+
+The app asks GitHub for the latest release on launch, compares the tag with
+its own version, and if there is a newer one downloads the disk image, checks
+it against `SHA256SUMS-macos.txt` from the same release, and stages the
+bundle. Restarting swaps it in.
+
+Two things follow for releasing:
+
+- The desktop workflow must attach both the `.dmg` and `SHA256SUMS-macos.txt`.
+  A release with no checksum for its disk image is refused by the updater
+  rather than installed on trust, which for an unsigned build is the only
+  sensible reading.
+- Version numbers must only go up. The comparison is numeric, so `0.2.10` is
+  correctly newer than `0.2.9`.
+
+## Adding a language
+
+Copy `src/swag_converter/gui/locales/en.json`, translate the values, and name
+it after the language code. It is picked up on the next launch, and
+`language.name` is what the switcher shows. Keys missing from a translation
+fall back to English rather than appearing blank, and the test suite checks
+every language covers every key and uses the same `{placeholders}`.
+
 ## The bundle is unsigned
 
 macOS will refuse it on first open. Right-click the app and choose **Open**,

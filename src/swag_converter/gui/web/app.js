@@ -5,6 +5,32 @@
 
 const $ = (id) => document.getElementById(id);
 
+/* ------------------------------------------------------------ translation */
+
+let STRINGS = {};
+
+// Missing keys answer with the key, which is ugly on purpose: an untranslated
+// control should be obvious to whoever is translating, not silently blank.
+function t(key, values) {
+  let text = STRINGS[key];
+  if (text === undefined) return key;
+  if (values) {
+    for (const [name, value] of Object.entries(values)) {
+      text = text.split('{' + name + '}').join(String(value));
+    }
+  }
+  return text;
+}
+
+function paintStrings(root) {
+  for (const node of (root || document).querySelectorAll('[data-t]')) {
+    node.textContent = t(node.dataset.t);
+  }
+  for (const node of (root || document).querySelectorAll('[data-t-title]')) {
+    node.title = t(node.dataset.tTitle);
+  }
+}
+
 /* ----------------------------------------------------------- bridge calls */
 
 // Every call to Python goes through here. A bridge method that throws used to
@@ -15,7 +41,7 @@ async function call(method, ...args) {
     return await window.pywebview.api[method](...args);
   } catch (err) {
     const detail = (err && (err.message || err.reason)) || String(err);
-    say(`${method} failed — ${detail}`, 'bad');
+    say(t('say.failed', { method, detail }), 'bad');
     return null;
   }
 }
@@ -35,42 +61,18 @@ function report(outcome) {
   if (!outcome) return [];
   const skipped = outcome.skipped || [];
   if (skipped.length === 1) {
-    say(`${skipped[0].name} ${skipped[0].reason}.`, 'bad');
+    say(t('say.skipped.one', { name: skipped[0].name, reason: skipped[0].reason }), 'bad');
   } else if (skipped.length > 1) {
-    say(`${skipped.length} files skipped — ${skipped[0].name} ${skipped[0].reason}, and others.`, 'bad');
+    say(t('say.skipped.many',
+          { n: skipped.length, name: skipped[0].name, reason: skipped[0].reason }), 'bad');
   }
   return outcome.added || [];
 }
 
 /* ------------------------------------------------------------------ state */
 
-const PRESETS = {
-  auto: ['Work it out', 'Measures the image and chooses.'],
-  icon: ['Icon', 'Logos, flat artwork. Crisp edges.'],
-  illustration: ['Illustration', 'Shaded drawings. Keeps gradients.'],
-  photo: ['Photograph', 'A deliberate stylisation.'],
-  poster: ['Poster', 'A few big flat shapes.'],
-};
-
-const QUALITY = {
-  fast: ['Quick', 'Few shapes. Smallest file and the shortest wait.'],
-  balanced: ['Balanced', 'As many shapes as the picture is worth. The default.'],
-  max: ['Maximum', 'Most shapes. Slowest and largest; flat artwork barely changes.'],
-};
-
-const EDGES = [['640', 'Small'], ['1024', 'Normal'], ['1600', 'Large'], ['2400', 'Huge'], ['0', 'Full']];
-
-// The one sentence that separates the two settings people confuse.
-const EDGE_HINT =
-  'The size the picture is scaled to before tracing starts. A larger one lets '
-  + 'the tracer notice finer things; it does not on its own let it draw more — '
-  + 'that is Detail above.';
-
-const BACKGROUNDS = {
-  auto: ['If flat', 'Cleared only when the image really has a plain backdrop.'],
-  always: ['Always', 'Always try to cut the backdrop away.'],
-  keep: ['Never', 'Trace the background along with everything else.'],
-};
+const EDGES = ['640', '1024', '1600', '2400', '0'];
+const BACKGROUNDS = ['auto', 'always', 'keep'];
 
 const state = {
   info: null,
@@ -78,6 +80,9 @@ const state = {
   busy: false,
   outdated: 0,
   again: false,
+  update: null,
+  announced: null,
+  updateTimer: null,
   thumbs: new Map(),
   timer: null,
   view: null,          // {id, name, svg, source, result}
@@ -94,44 +99,109 @@ const state = {
 async function boot() {
   state.info = await call('describe');
   if (!state.info) {
-    say('The converter did not start. Reopen the app.', 'bad');
+    say('The converter did not start. Reopen the app.', 'bad');  // before any dictionary
     return;
   }
-  const s = state.info.settings;
-
-  buildCards($('presets'), state.info.presets, PRESETS, s.preset, (v) => {
-    pushSettings({ preset: v });
-  });
-  buildSeg($('quality'), state.info.qualities.map((q) => [q, QUALITY[q][0]]), s.quality, (v) => {
-    pushSettings({ quality: v });
-    $('quality-hint').textContent = QUALITY[v][1];
-  });
-  buildSeg($('edge'), EDGES, String(s.max_edge), (v) => pushSettings({ max_edge: v }));
-  $('edge-hint').textContent = EDGE_HINT;
-  buildSeg($('background'), Object.entries(BACKGROUNDS).map(([k, v]) => [k, v[0]]), s.background, (v) => {
-    pushSettings({ background: v });
-    $('background-hint').textContent = BACKGROUNDS[v][1];
-  });
-
-  $('quality-hint').textContent = QUALITY[s.quality][1];
-  $('background-hint').textContent = BACKGROUNDS[s.background][1];
-
-  $('measure').checked = s.measure && state.info.scoring;
-  $('measure').disabled = !state.info.scoring;
-  $('measure-hint').textContent = state.info.scoring
-    ? 'Renders the SVG back and compares it with the original. A little slower.'
-    : 'Unavailable in this build — it needs a renderer that is not installed.';
-
-  $('version').textContent = 'version ' + state.info.version;
-  $('formats').textContent = state.info.suffixes.map((s) => s.slice(1).toUpperCase()).join(' · ');
-
+  STRINGS = state.info.strings || {};
+  drawSettings();
   await refresh();
 }
 
-function buildCards(host, values, labels, chosen, onPick) {
+// Called again whenever the language changes, so switching is a redraw.
+function drawSettings() {
+  const s = state.info.settings;
+  paintStrings();
+
+  buildCards($('presets'), state.info.presets, s.preset, (v) => pushSettings({ preset: v }));
+
+  buildSeg($('quality'), state.info.qualities.map((q) => [q, t('quality.' + q)]), s.quality, (v) => {
+    pushSettings({ quality: v });
+    $('quality-hint').textContent = t('quality.' + v + '.note');
+  });
+  $('quality-hint').textContent = t('quality.' + s.quality + '.note');
+
+  buildSeg($('edge'), EDGES.map((e) => [e, t('edge.' + e)]), String(s.max_edge),
+           (v) => pushSettings({ max_edge: v }));
+  $('edge-hint').textContent = t('set.input.hint');
+
+  buildSeg($('background'), BACKGROUNDS.map((b) => [b, t('bg.' + b)]), s.background, (v) => {
+    pushSettings({ background: v });
+    $('background-hint').textContent = t('bg.' + v + '.note');
+  });
+  $('background-hint').textContent = t('bg.' + s.background + '.note');
+
+  buildSeg($('language'), state.info.languages.map((l) => [l.code, l.name]), s.language,
+           (v) => switchLanguage(v));
+
+  $('measure').checked = s.measure && state.info.scoring;
+  $('measure').disabled = !state.info.scoring;
+  $('measure-hint').textContent = state.info.scoring ? t('set.score.hint') : t('set.score.unavailable');
+
+  $('auto-update').checked = !!s.auto_update;
+  pollUpdate();
+
+  $('version').textContent = 'version ' + state.info.version;
+  if (state.updateTimer) { clearTimeout(state.updateTimer); state.updateTimer = null; }
+  $('formats').textContent = state.info.suffixes.map((x) => x.slice(1).toUpperCase()).join(' · ');
+  setOut(s.output_dir || '');
+  render();
+}
+
+/* ---------------------------------------------------------------- updates */
+
+async function pollUpdate() {
+  const status = await call('update_status');
+  if (!status) return;
+  state.update = status;
+  const line = $('update-state');
+  const restart = $('update-restart');
+  const phase = status.phase;
+
+  if (!status.supported) {
+    line.textContent = t('update.unsupported');
+    $('update-check').disabled = true;
+    restart.hidden = true;
+    return;
+  }
+  const label = {
+    idle: '',
+    checking: t('update.checking'),
+    current: t('update.current'),
+    found: t('update.found', { version: status.version }),
+    downloading: t('update.downloading', { version: status.version }),
+    unpacking: t('update.downloading', { version: status.version }),
+    ready: t('update.ready', { version: status.version }),
+    failed: t('update.failed', { detail: status.detail }),
+  }[phase];
+  line.textContent = label === undefined ? '' : label;
+  line.title = line.textContent;
+  restart.hidden = phase !== 'ready';
+
+  // An update that has arrived should be visible without opening settings.
+  if (phase === 'ready' && state.announced !== status.version) {
+    state.announced = status.version;
+    say(t('update.ready', { version: status.version }), 'good');
+  }
+  const busy = phase === 'checking' || phase === 'downloading' || phase === 'unpacking';
+  $('update-check').disabled = busy;
+  clearTimeout(state.updateTimer);
+  if (busy) state.updateTimer = setTimeout(pollUpdate, 800);
+}
+
+async function switchLanguage(code) {
+  const strings = await call('strings', code);
+  if (!strings) return;
+  STRINGS = strings;
+  state.info.settings.language = code;
+  await call('update_settings', { language: code });
+  drawSettings();
+}
+
+function buildCards(host, values, chosen, onPick) {
   host.innerHTML = '';
   values.forEach((value, index) => {
-    const [title, note] = labels[value] || [value, ''];
+    const title = t('preset.' + value);
+    const note = t('preset.' + value + '.note');
     const b = document.createElement('button');
     b.className = 'pcard' + (index === 0 ? ' wide' : '');
     b.innerHTML = `<b></b><span></span>`;
@@ -185,12 +255,12 @@ function render() {
   const stale = done.filter((j) => j.outdated).length;
   state.order = done.map((j) => j.id);
 
-  $('tally').innerHTML = jobs.length
-    ? `<b>${jobs.length}</b> image${jobs.length > 1 ? 's' : ''}` +
-      (done.length ? ` · <b>${done.length}</b> converted` : '') +
-      (failed ? ` · <b>${failed}</b> failed` : '') +
-      (stale && !state.busy ? ` · settings changed since` : '')
-    : '';
+  const parts = [];
+  if (jobs.length) parts.push(t(jobs.length === 1 ? 'bar.image' : 'bar.images', { n: jobs.length }));
+  if (done.length) parts.push(t('bar.converted', { n: done.length }));
+  if (failed) parts.push(t('bar.failed', { n: failed }));
+  if (stale && !state.busy) parts.push(t('bar.changed'));
+  $('tally').textContent = parts.join(' · ');
 
   const finished = done.length + failed;
   $('batch').hidden = !state.busy;
@@ -201,8 +271,8 @@ function render() {
   state.again = jobs.length > 0 && state.outdated === 0;
   $('convert').disabled = state.busy || jobs.length === 0;
   $('convert').textContent = state.busy
-    ? 'Converting…'
-    : state.again ? 'Convert again' : 'Convert';
+    ? t('bar.converting')
+    : t(state.again ? 'bar.convert.again' : 'bar.convert');
   $('cancel').hidden = !state.busy;
   $('clear').hidden = !jobs.length || state.busy;
 }
@@ -253,7 +323,7 @@ function card(job) {
     const kill = document.createElement('button');
     kill.className = 'kill';
     kill.textContent = '×';
-    kill.title = 'Remove';
+    kill.title = t('job.remove');
     kill.onclick = async (e) => {
       e.stopPropagation();
       state.thumbs.delete(job.id);
@@ -289,24 +359,24 @@ function ring(fraction) {
 function badge(job) {
   // "waiting" is only true of a queue that is moving. Before Convert is
   // pressed nothing is waiting on anything, and saying so reads as a stall.
-  if (job.status === 'queued') return state.busy ? ['waiting', 'wait'] : ['ready', 'wait'];
-  if (job.status === 'done') return job.outdated ? ['out of date', 'wait'] : ['done', 'good'];
-  if (job.status === 'failed') return ['failed', 'bad'];
-  if (job.status === 'cancelled') return ['stopped', 'wait'];
+  if (job.status === 'queued') return [t(state.busy ? 'badge.waiting' : 'badge.ready'), 'wait'];
+  if (job.status === 'done') return job.outdated ? [t('badge.outdated'), 'wait'] : [t('badge.done'), 'good'];
+  if (job.status === 'failed') return [t('badge.failed'), 'bad'];
+  if (job.status === 'cancelled') return [t('badge.stopped'), 'wait'];
   return [job.status, 'wait'];
 }
 
 function describe(job) {
   switch (job.status) {
-    case 'queued': return state.busy ? 'in the queue' : 'not converted yet';
-    case 'running': return job.stage ? job.stage + '…' : 'starting…';
-    case 'cancelled': return 'stopped before it finished';
-    case 'failed': return job.error || 'failed';
+    case 'queued': return t(state.busy ? 'job.queued' : 'job.notyet');
+    case 'running': return job.stage ? job.stage + '…' : t('job.starting');
+    case 'cancelled': return t('job.stopped');
+    case 'failed': return job.error || t('badge.failed');
     case 'done': {
       const r = job.result || {};
-      const bits = [`${size(r.svg_bytes)}`, `${r.regions} shapes`];
-      if (r.similarity != null) bits.push(`${(r.similarity * 100).toFixed(1)}% match`);
-      if (job.outdated) bits.push('settings changed');
+      const bits = [size(r.svg_bytes), t('job.shapes', { n: r.regions })];
+      if (r.similarity != null) bits.push(t('job.match', { n: (r.similarity * 100).toFixed(1) }));
+      if (job.outdated) bits.push(t('job.changed'));
       return bits.join(' · ');
     }
     default: return '';
@@ -316,8 +386,8 @@ function describe(job) {
 function size(bytes) {
   if (bytes == null) return '';
   return bytes >= 1024 * 1024
-    ? (bytes / 1024 / 1024).toFixed(1) + ' MB'
-    : Math.round(bytes / 1024) + ' KB';
+    ? (bytes / 1024 / 1024).toFixed(1) + ' ' + t('unit.mb')
+    : Math.round(bytes / 1024) + ' ' + t('unit.kb');
 }
 
 function apply(snapshot) {
@@ -342,13 +412,14 @@ function pace() {
 async function openViewer(id) {
   const data = await call('preview', id);
   if (!data || !data.svg) {
-    say('That result is no longer on disk.', 'bad');
+    say(t('say.gone'), 'bad');
     return;
   }
   state.view = data;
   $('v-name').textContent = data.name;
   const at = state.order.indexOf(id);
-  $('v-pos').textContent = state.order.length > 1 ? `${at + 1} of ${state.order.length}` : '';
+  $('v-pos').textContent = state.order.length > 1
+    ? t('view.position', { a: at + 1, b: state.order.length }) : '';
   $('v-prev').disabled = $('v-next').disabled = state.order.length < 2;
 
   $('v-source').src = data.source;
@@ -358,16 +429,20 @@ async function openViewer(id) {
   state.natural = { w: r.width || 800, h: r.height || 600 };
   $('v-stats').innerHTML = '';
   const chips = [
-    ['Original', `${(r.source_size || []).join('×')} · ${size(r.source_bytes)}`],
-    ['Vector', `${size(r.svg_bytes)} · ${r.regions} shapes · ${r.gradients} gradients`],
-    ['Read as', r.content || ''],
-    ['Settings', `${r.preset} · ${r.quality}`],
-    ['Took', `${r.seconds}s`],
+    ['view.chip.original', `${(r.source_size || []).join('×')} · ${size(r.source_bytes)}`],
+    ['view.chip.vector', t('view.vectorinfo',
+      { size: size(r.svg_bytes), shapes: r.regions, gradients: r.gradients })],
+    // The tracer reports what it decided the picture is, in its own words;
+    // the reader deserves it in theirs.
+    ['view.chip.readas', r.content ? t('preset.' + r.content) : ''],
+    ['view.chip.settings', `${t('preset.' + r.preset)} · ${t('quality.' + r.quality)}`],
+    ['view.chip.took', `${r.seconds}s`],
   ];
-  if (r.similarity != null) chips.push(['Match', `${(r.similarity * 100).toFixed(1)}%`]);
-  for (const [k, v] of chips) {
+  if (r.similarity != null) chips.push(['view.chip.match', `${(r.similarity * 100).toFixed(1)}%`]);
+  for (const [key, v] of chips) {
+    const k = t(key);
     const chip = document.createElement('div');
-    chip.className = 'chip' + (k === 'Match' && r.similarity > 0.9 ? ' win' : '');
+    chip.className = 'chip' + (key === 'view.chip.match' && r.similarity > 0.9 ? ' win' : '');
     const b = document.createElement('b');
     b.textContent = k;
     chip.append(b, document.createTextNode(v));
@@ -490,7 +565,7 @@ function dropTargets() {
     if (tooBig.length) {
       // Refuse before reading: a dropped file crosses the bridge as base64,
       // which is a third larger again than the file itself.
-      say(`${tooBig[0].name} is larger than ${Math.round(cap / 1024 / 1024)} MB.`, 'bad');
+      say(t('say.toobig', { name: tooBig[0].name, mb: Math.round(cap / 1024 / 1024) }), 'bad');
     }
     for (const file of files) {
       if (file.size <= cap) await handOver(file);
@@ -539,6 +614,19 @@ function wire() {
   };
 
   $('measure').onchange = (e) => pushSettings({ measure: e.target.checked });
+  $('auto-update').onchange = (e) => call('update_settings', { auto_update: e.target.checked });
+
+  $('update-check').onclick = async () => {
+    $('update-state').textContent = t('update.checking');
+    $('update-check').disabled = true;
+    setTimeout(pollUpdate, 400);
+    await call('check_for_update');
+    await pollUpdate();
+  };
+  $('update-restart').onclick = async () => {
+    const outcome = await call('install_update');
+    if (outcome && outcome !== 'restarting') say(outcome, 'bad');
+  };
   $('pick-out').onclick = async () => setOut(await call('choose_output_dir'));
   $('out-beside').onclick = async () => setOut(await call('use_source_folder'));
 
@@ -552,7 +640,7 @@ function wire() {
   $('v-save').onclick = async () => {
     if (!state.view) return;
     const saved = await call('save_copy', state.view.id);
-    if (saved) say('Saved to ' + saved, 'good');
+    if (saved) say(t('say.saved', { path: saved }), 'good');
   };
   for (const b of $('v-mode').querySelectorAll('button')) {
     b.onclick = () => setMode(b.dataset.mode);
@@ -579,7 +667,7 @@ function wire() {
 
 function setOut(path) {
   if (path === null) return;
-  $('outdir').textContent = path || 'Beside each original';
+  $('outdir').textContent = path || t('set.beside');
   $('out-beside').hidden = !path;
 }
 

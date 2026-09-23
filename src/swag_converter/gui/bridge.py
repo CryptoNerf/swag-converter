@@ -20,7 +20,10 @@ from typing import Any
 
 from ..image import SUPPORTED_SUFFIXES
 from ..presets import PRESETS, QUALITY
+from . import locales
 from .jobs import Queue
+from .store import Store
+from .updater import Updater
 
 #: Kept small deliberately: a thumbnail is a hint, not a preview.
 THUMBNAIL = 320
@@ -45,15 +48,30 @@ DEFAULTS: dict[str, Any] = {
     "background": "auto",
     "measure": True,
     "output_dir": "",
+    "language": "en",
+    "auto_update": True,
 }
+
+#: Settings worth carrying between launches.  The output folder is not one of
+#: them by accident: it is where someone's last batch went, and they usually
+#: want the next one in the same place.
+REMEMBERED = ("preset", "quality", "max_edge", "background", "measure",
+              "output_dir", "language", "auto_update")
 
 
 class Bridge:
-    def __init__(self) -> None:
+    def __init__(self, store: Store | None = None) -> None:
         self.queue = Queue()
-        self.settings = dict(DEFAULTS)
+        self.store = store if store is not None else Store()
+        self.settings = self.store.merged(DEFAULTS)
+        if self.settings["language"] not in locales.codes():
+            self.settings["language"] = locales.FALLBACK
         self.window: Any = None
         self._scratch = Path(tempfile.mkdtemp(prefix="swag-gui-"))
+
+        from .. import __version__
+
+        self.updater = Updater(__version__, self.store)
 
     # -- what the page needs to draw itself --------------------------------
 
@@ -67,6 +85,8 @@ class Bridge:
             "suffixes": sorted(SUPPORTED_SUFFIXES),
             "settings": self.settings,
             "scoring": _scoring_available(),
+            "languages": locales.available(),
+            "strings": locales.strings(self.settings["language"]),
             # So the page can refuse an oversized drop before reading it into
             # memory and base64-ing it across the bridge.
             "max_drop_bytes": MAX_DROP_BYTES,
@@ -92,8 +112,34 @@ class Bridge:
                 value = bool(value)
             if key == "output_dir":
                 value = str(value or "")
+            if key == "language" and value not in locales.codes():
+                continue
+            if key == "auto_update":
+                value = bool(value)
             self.settings[key] = value
+        self.store.update({key: self.settings[key] for key in REMEMBERED})
         return self.settings
+
+    # -- updates -----------------------------------------------------------
+
+    def update_status(self) -> dict[str, Any]:
+        return self.updater.status()
+
+    def check_for_update(self) -> dict[str, Any]:
+        """Ask now, from the window's button."""
+        return self.updater.check()
+
+    def install_update(self) -> str:
+        return self.updater.apply_and_restart()
+
+    def start_update_check(self) -> None:
+        """The quiet one at launch, if the setting allows it."""
+        if self.settings.get("auto_update"):
+            self.updater.check_in_background()
+
+    def strings(self, code: str | None = None) -> dict[str, str]:
+        """The interface text for a language, without reopening the window."""
+        return locales.strings(code or self.settings["language"])
 
     # -- getting images in -------------------------------------------------
 
@@ -189,6 +235,8 @@ class Bridge:
             "measure": bool(self.settings["measure"]) and _scoring_available(),
             "output_dir": self.settings.get("output_dir", ""),
         }
+        # Language and update preferences change nothing about a conversion,
+        # so they must not make finished results look out of date.
 
     def start(self) -> dict[str, Any]:
         options = self._tracing_options()
@@ -307,6 +355,7 @@ class Bridge:
         return source.with_suffix(".svg")
 
     def shutdown(self) -> None:
+        self.updater.shutdown()
         self.queue.shutdown()
         for leftover in self._scratch.glob("*"):
             try:

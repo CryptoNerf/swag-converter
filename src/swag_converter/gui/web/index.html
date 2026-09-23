@@ -11,7 +11,7 @@
 <div id="drop" class="veil" hidden>
   <div class="veil-card">
     <div class="veil-mark">↓</div>
-    <div class="veil-title">Drop to add</div>
+    <div class="veil-title" data-t="drop.title">Drop to add</div>
   </div>
 </div>
 
@@ -21,11 +21,11 @@
   <div class="mark" aria-hidden="true"></div>
   <div class="title">
     <b>sw(a)g.converter</b>
-    <span>raster → vector, on this machine</span>
+    <span data-t="app.tagline">raster → vector, on this machine</span>
   </div>
   <div class="grow"></div>
-  <button id="settings-toggle" class="ghost" aria-pressed="true" title="Settings">Settings</button>
-  <button id="add" class="accent">Add images</button>
+  <button id="settings-toggle" class="ghost" aria-pressed="true" data-t="app.settings" data-t-title="app.settings">Settings</button>
+  <button id="add" class="accent" data-t="app.add">Add images</button>
 </header>
 
 <main class="work">
@@ -39,8 +39,8 @@
           <circle cx="4" cy="50" r="4"/><circle cx="56" cy="10" r="4"/><circle cx="116" cy="12" r="4"/>
         </svg>
       </div>
-      <h1>Drop images here</h1>
-      <p>or <button id="add-inline" class="link">choose them</button> — they never leave this machine.</p>
+      <h1 data-t="empty.title">Drop images here</h1>
+      <p><span data-t="empty.or">or</span> <button id="add-inline" class="link" data-t="empty.choose">choose them</button> <span data-t="empty.private">— they never leave this machine.</span></p>
       <p class="formats" id="formats"></p>
     </div>
 
@@ -49,24 +49,24 @@
 
   <aside id="panel" class="panel">
     <div class="group">
-      <h2>What is it</h2>
+      <h2 data-t="set.preset">What is it</h2>
       <div id="presets" class="cards"></div>
     </div>
 
     <div class="group">
-      <h2>Detail — how much it draws</h2>
+      <h2 data-t="set.detail">Detail — how much it draws</h2>
       <div id="quality" class="seg wide"></div>
       <p class="hint" id="quality-hint"></p>
     </div>
 
     <div class="group">
-      <h2>Input size — how much it sees</h2>
+      <h2 data-t="set.input">Input size — how much it sees</h2>
       <div id="edge" class="seg wide"></div>
       <p class="hint" id="edge-hint"></p>
     </div>
 
     <div class="group">
-      <h2>Plain background</h2>
+      <h2 data-t="set.background">Plain background</h2>
       <div id="background" class="seg wide"></div>
       <p class="hint" id="background-hint"></p>
     </div>
@@ -75,18 +75,37 @@
       <label class="switch">
         <input type="checkbox" id="measure">
         <span class="track"><span class="knob"></span></span>
-        <span class="switch-label">Score the result</span>
+        <span class="switch-label" data-t="set.score">Score the result</span>
       </label>
       <p class="hint" id="measure-hint"></p>
     </div>
 
     <div class="group">
-      <h2>Save to</h2>
+      <h2 data-t="set.saveto">Save to</h2>
       <div class="outrow">
         <div class="outpath" id="outdir">Beside each original</div>
-        <button id="pick-out" class="ghost small">Change…</button>
+        <button id="pick-out" class="ghost small" data-t="set.change">Change…</button>
       </div>
-      <button id="out-beside" class="link" hidden>Put them beside the originals again</button>
+      <button id="out-beside" class="link" data-t="set.beside.again" hidden>Put them beside the originals again</button>
+    </div>
+
+    <div class="group">
+      <h2 data-t="set.language">Language</h2>
+      <div id="language" class="seg wide"></div>
+    </div>
+
+    <div class="group">
+      <h2 data-t="set.updates">Updates</h2>
+      <label class="switch">
+        <input type="checkbox" id="auto-update">
+        <span class="track"><span class="knob"></span></span>
+        <span class="switch-label" data-t="update.auto">Install updates automatically</span>
+      </label>
+      <div class="outrow">
+        <div class="outpath" id="update-state"></div>
+        <button id="update-check" class="ghost small" data-t="update.check">Check now</button>
+      </div>
+      <button id="update-restart" class="accent" data-t="update.restart" hidden>Restart now</button>
     </div>
 
     <div class="grow"></div>
@@ -100,31 +119,31 @@
     <div class="track-line" id="batch" hidden><span id="batch-fill"></span></div>
   </div>
   <div class="bar-right">
-    <button id="clear" class="ghost" hidden>Clear</button>
-    <button id="cancel" class="stop" hidden>Stop</button>
+    <button id="clear" class="ghost" data-t="bar.clear" hidden>Clear</button>
+    <button id="cancel" class="stop" data-t="bar.stop" hidden>Stop</button>
     <button id="convert" class="accent big" disabled>Convert</button>
   </div>
 </footer>
 
 <div id="viewer" class="viewer" hidden>
   <header class="vbar">
-    <button id="v-close" class="ghost">← Back</button>
+    <button id="v-close" class="ghost" data-t="view.back">← Back</button>
     <div class="vname"><b id="v-name"></b><span id="v-pos"></span></div>
     <div class="grow"></div>
     <div class="seg" id="v-mode">
-      <button data-mode="wipe" aria-pressed="true">Compare</button>
-      <button data-mode="source">Original</button>
-      <button data-mode="vector">Vector</button>
+      <button data-mode="wipe" aria-pressed="true" data-t="view.compare">Compare</button>
+      <button data-mode="source" data-t="view.original">Original</button>
+      <button data-mode="vector" data-t="view.vector">Vector</button>
     </div>
-    <button id="v-zoom-out" class="ghost small" title="Zoom out">−</button>
+    <button id="v-zoom-out" class="ghost small" data-t-title="view.zoomout" title="Zoom out">−</button>
     <span class="zoom" id="v-zoom">100%</span>
-    <button id="v-zoom-in" class="ghost small" title="Zoom in">+</button>
-    <button id="v-fit" class="ghost small">Fit</button>
+    <button id="v-zoom-in" class="ghost small" data-t-title="view.zoomin" title="Zoom in">+</button>
+    <button id="v-fit" class="ghost small" data-t="view.fit">Fit</button>
     <div class="vgap"></div>
-    <button id="v-prev" class="ghost small" title="Previous">‹</button>
-    <button id="v-next" class="ghost small" title="Next">›</button>
-    <button id="v-reveal" class="ghost">Show in folder</button>
-    <button id="v-save" class="ghost">Save a copy…</button>
+    <button id="v-prev" class="ghost small" data-t-title="view.prev" title="Previous">‹</button>
+    <button id="v-next" class="ghost small" data-t-title="view.next" title="Next">›</button>
+    <button id="v-reveal" class="ghost" data-t="view.reveal">Show in folder</button>
+    <button id="v-save" class="ghost" data-t="view.save">Save a copy…</button>
   </header>
 
   <div class="vstage" id="v-stage">
@@ -133,8 +152,8 @@
       <div class="vlayer" id="v-vector"></div>
       <div class="vwipe" id="v-wipe"><span class="vgrip"></span></div>
     </div>
-    <div class="vtag left" id="v-tag-left">Original</div>
-    <div class="vtag right" id="v-tag-right">Vector</div>
+    <div class="vtag left" id="v-tag-left" data-t="view.original">Original</div>
+    <div class="vtag right" id="v-tag-right" data-t="view.vector">Vector</div>
   </div>
 
   <footer class="vstats" id="v-stats"></footer>

@@ -53,8 +53,16 @@ If you would rather not touch a terminal, there is a window:
 **[Download for macOS](https://github.com/CryptoNerf/swag-converter/releases/latest)**
 — Apple Silicon, no Python needed.
 
-Drop images in, pick how much detail you want, press Convert. The result opens
-next to the original so you can flip between them.
+Drop images in, pick how much detail you want, press Convert. Results open in
+a comparison view: drag the handle across the image to wipe between the
+original and the vector, scroll to zoom, arrow keys to walk the batch.
+
+It keeps itself up to date — it looks for a newer release on launch, downloads
+it in the background and offers to restart when it is ready. Nothing installs
+that does not match the checksum published with it. Turn it off in Settings if
+you would rather not.
+
+The interface is in English and Russian; switch in Settings.
 
 The build is not signed, so macOS refuses it the first time. Right-click the
 app, choose **Open**, then **Open** again — once, and never after. (Signing it

@@ -59,15 +59,21 @@ jobs:
           ln -s /Applications staging/Applications
           hdiutil create -volname "sw(a)g.converter" -srcfolder staging \
             -ov -format UDZO "swag-converter-${version}-macos-arm64.dmg"
-          shasum -a 256 *.dmg
+          # The updater will not install a build it cannot verify, and the
+          # release job's SHA256SUMS.txt only covers the Python artifacts.
+          shasum -a 256 *.dmg | tee SHA256SUMS-macos.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: "*.dmg"
+          path: |
+            *.dmg
+            SHA256SUMS-macos.txt
 
       - name: Attach to the release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.dmg"
+          files: |
+            *.dmg
+            SHA256SUMS-macos.txt

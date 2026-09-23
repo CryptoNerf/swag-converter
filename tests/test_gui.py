@@ -31,8 +31,15 @@ def _image(tmp_path: Path, name: str = "in.png", size: int = 64) -> Path:
 
 
 @pytest.fixture
-def bridge():
-    made = Bridge()
+def bridge(tmp_path: Path):
+    """A window's worth of state, with its own settings file.
+
+    Never the real one: a Bridge writes preferences as it goes, and a test
+    run must not rewrite the preferences of whoever ran it.
+    """
+    from swag_converter.gui.store import Store
+
+    made = Bridge(store=Store(tmp_path / "settings.json"))
     yield made
     made.shutdown()
 
