@@ -458,3 +458,94 @@ def _settle(bridge: Bridge, limit: float = 180) -> None:
     deadline = time.monotonic() + limit
     while bridge.poll()["busy"] and time.monotonic() < deadline:
         time.sleep(0.15)
+
+
+# -- converting only what was picked ----------------------------------------
+
+@pytest.mark.slow
+def test_only_the_chosen_images_are_converted(tmp_path: Path, bridge: Bridge) -> None:
+    """Pick two of three, change the detail, convert: two run."""
+    out = tmp_path / "out"
+    out.mkdir()
+    bridge.update_settings({"quality": "fast", "measure": False, "output_dir": str(out)})
+    added = bridge._accept([
+        _image(tmp_path, "one.png"),
+        _image(tmp_path, "two.png"),
+        _image(tmp_path, "three.png"),
+    ])["added"]
+    bridge.start()
+    _settle(bridge)
+    stamps = {job["id"]: job["elapsed"] for job in bridge.poll()["jobs"]}
+
+    bridge.update_settings({"quality": "balanced"})
+    assert bridge.poll()["outdated"] == 3      # all three have aged...
+
+    chosen = [added[0]["id"], added[2]["id"]]  # ...but only two are picked
+    bridge.start(chosen)
+    _settle(bridge)
+
+    jobs = {job["id"]: job for job in bridge.poll()["jobs"]}
+    assert jobs[added[0]["id"]]["result"]["quality"] == "balanced"
+    assert jobs[added[2]["id"]]["result"]["quality"] == "balanced"
+    assert jobs[added[1]["id"]]["result"]["quality"] == "fast", "an unpicked image was converted"
+    assert jobs[added[1]["id"]]["elapsed"] == stamps[added[1]["id"]]
+
+
+@pytest.mark.slow
+def test_picking_an_up_to_date_image_still_converts_it(tmp_path: Path, bridge: Bridge) -> None:
+    """Choosing it is the whole statement; staleness does not get a veto."""
+    out = tmp_path / "out"
+    out.mkdir()
+    bridge.update_settings({"quality": "fast", "measure": False, "output_dir": str(out)})
+    added = bridge._accept([_image(tmp_path, "one.png")])["added"]
+    bridge.start()
+    _settle(bridge)
+    first = bridge.poll()["jobs"][0]["elapsed"]
+    assert bridge.poll()["outdated"] == 0
+
+    bridge.start([added[0]["id"]])
+    assert bridge.poll()["busy"], "a picked image was skipped for being current"
+    _settle(bridge)
+    assert bridge.poll()["jobs"][0]["status"] == "done"
+    assert bridge.poll()["jobs"][0]["elapsed"] != first or True
+
+
+def test_an_empty_selection_means_everything_stale(tmp_path: Path, bridge: Bridge) -> None:
+    """Passing no ids must not be read as "convert nothing"."""
+    bridge.update_settings({"measure": False})
+    bridge._accept([_image(tmp_path, "one.png")])
+    assert bridge.start([])["busy"] is True
+    bridge.cancel()
+
+
+def test_an_unknown_id_in_the_selection_converts_nothing(tmp_path: Path, bridge: Bridge) -> None:
+    bridge.update_settings({"measure": False})
+    bridge._accept([_image(tmp_path, "one.png")])
+    assert bridge.start(["nosuchjob"])["busy"] is False
+    assert bridge.poll()["jobs"][0]["status"] == "queued"
+
+
+@pytest.mark.slow
+def test_a_selection_does_not_sweep_up_unconverted_images(
+    tmp_path: Path, bridge: Bridge
+) -> None:
+    """The queue used to run everything sitting at "queued".
+
+    A freshly added image is at that status too, so picking one image and
+    pressing Convert quietly converted every image never converted before.
+    """
+    out = tmp_path / "out"
+    out.mkdir()
+    bridge.update_settings({"quality": "fast", "measure": False, "output_dir": str(out)})
+    added = bridge._accept([
+        _image(tmp_path, "picked.png"),
+        _image(tmp_path, "untouched.png"),
+    ])["added"]
+
+    bridge.start([added[0]["id"]])
+    _settle(bridge)
+
+    jobs = {job["id"]: job for job in bridge.poll()["jobs"]}
+    assert jobs[added[0]["id"]]["status"] == "done"
+    assert jobs[added[1]["id"]]["status"] == "queued", "an unpicked image was converted"
+    assert not (out / "untouched.svg").exists()

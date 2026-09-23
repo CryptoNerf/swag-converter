@@ -238,12 +238,14 @@ class Bridge:
         # Language and update preferences change nothing about a conversion,
         # so they must not make finished results look out of date.
 
-    def start(self) -> dict[str, Any]:
+    def start(self, chosen: list[str] | None = None) -> dict[str, Any]:
+        """Convert what was picked, or everything the settings have aged."""
         options = self._tracing_options()
         self.queue.start(
             {key: value for key, value in options.items() if key != "output_dir"},
             lambda job: self._destination_for_path(job.source),
             signature=options,
+            only={str(item) for item in chosen} if chosen else None,
         )
         return self.poll()
 

@@ -227,6 +227,37 @@ button[aria-pressed="true"].ghost { background: var(--accent); color: var(--acce
 .card:hover .kill { opacity: 1; }
 .kill:hover { color: var(--bad); background: rgba(40, 20, 22, .9); }
 
+/* ---- choosing which images to convert ---- */
+
+.selbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 9px 16px 0; font-size: 12.5px; color: var(--dim);
+}
+.selbar b { color: var(--ink); }
+
+.tick {
+  position: absolute; top: 7px; left: 7px; z-index: 2;
+  width: 21px; height: 21px; border-radius: 6px;
+  border: 1.5px solid rgba(220, 226, 235, .55);
+  background: rgba(16, 18, 22, .72);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .12s ease, background .12s ease, border-color .12s ease;
+}
+.card:hover .tick, .card.picked .tick { opacity: 1; }
+.tick:hover { border-color: var(--accent); }
+.tick::after {
+  content: ""; width: 9px; height: 5px; margin-top: -2px;
+  border-left: 2px solid var(--accent-ink); border-bottom: 2px solid var(--accent-ink);
+  transform: rotate(-45deg); opacity: 0;
+}
+.card.picked .tick { background: var(--accent); border-color: var(--accent); }
+.card.picked .tick::after { opacity: 1; }
+.card.picked { border-color: var(--accent); }
+
+/* The status pill shares the top-left with the tick, so it steps aside. */
+.card:hover .pill, .card.picked .pill { transform: translateX(29px); }
+.pill { transition: transform .12s ease; }
+
 /* ---- preset cards ---- */
 
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }

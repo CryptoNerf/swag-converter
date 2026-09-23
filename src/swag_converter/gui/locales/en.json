@@ -112,5 +112,12 @@
   "update.auto": "Install updates automatically",
   "update.unsupported": "Updates apply to the downloaded app, not to a copy run from source.",
   "unit.kb": "KB",
-  "unit.mb": "MB"
+  "unit.mb": "MB",
+  "bar.convert.selected": "Convert {n} selected",
+  "bar.convert.all": "Convert all",
+  "sel.count": "{n} selected",
+  "sel.all": "Select all",
+  "sel.none": "Clear selection",
+  "sel.hint": "Tick images to convert just those. With none ticked, Convert runs whatever the settings have aged.",
+  "sel.toggle": "Select this image"
 }

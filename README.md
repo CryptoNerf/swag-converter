@@ -57,6 +57,10 @@ Drop images in, pick how much detail you want, press Convert. Results open in
 a comparison view: drag the handle across the image to wipe between the
 original and the vector, scroll to zoom, arrow keys to walk the batch.
 
+Tick images to convert just those — useful when one picture wants a different
+setting from the rest. With nothing ticked, Convert runs whatever a change of
+settings has left out of date.
+
 It keeps itself up to date — it looks for a newer release on launch, downloads
 it in the background and offers to restart when it is ready. Nothing installs
 that does not match the checksum published with it. Turn it off in Settings if

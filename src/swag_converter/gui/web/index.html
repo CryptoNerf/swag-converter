@@ -44,6 +44,12 @@
       <p class="formats" id="formats"></p>
     </div>
 
+    <div id="selbar" class="selbar" hidden>
+      <span id="selcount"></span>
+      <button id="sel-all" class="link" data-t="sel.all">Select all</button>
+      <button id="sel-none" class="link" data-t="sel.none">Clear selection</button>
+    </div>
+
     <ul id="grid" class="grid" hidden></ul>
   </section>
 
@@ -116,6 +122,7 @@
 <footer class="bar">
   <div class="bar-left">
     <div class="tally" id="tally"></div>
+    <div class="hint" id="sel-hint" hidden></div>
     <div class="track-line" id="batch" hidden><span id="batch-fill"></span></div>
   </div>
   <div class="bar-right">

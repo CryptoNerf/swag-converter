@@ -187,33 +187,49 @@ class Queue:
         options: dict[str, Any],
         destination_for: Callable[[Job], Path],
         signature: dict[str, Any] | None = None,
+        only: set[str] | None = None,
     ) -> None:
         """``options`` go to the tracer; ``signature`` decides what is stale.
 
         They differ by the output folder: the tracer is handed a path, not a
         folder, but moving the folder still means a finished job's result is
         in the wrong place.
+
+        ``only`` names the jobs to run.  Given one, it is obeyed exactly —
+        a picked image is converted whether or not anything says it needs to
+        be, because picking it is the whole statement.  Given none, whatever
+        is out of date runs.
         """
         with self._lock:
             if self._running or self._pending:
                 return
             self._options = dict(options)
             self._signature = dict(signature if signature is not None else options)
+            chosen: set[str] = set()
             for job in self._jobs.values():
-                # A finished job is only finished for the settings that
-                # finished it.  Change the detail and press Convert and the
-                # expectation is plainly that it runs again.
-                if job.outdated(self._signature):
-                    job.destination = destination_for(job)
-                    job.status = "queued"
-                    job.stage = ""
-                    job.error = None
-                    job.result = None
-                    job.started = None
-                    job.finished = None
+                if only is not None:
+                    wanted = job.identifier in only
+                else:
+                    # A finished job is only finished for the settings that
+                    # finished it.  Change the detail and press Convert and
+                    # the expectation is plainly that it runs again.
+                    wanted = job.outdated(self._signature)
+                if not wanted:
+                    continue
+                chosen.add(job.identifier)
+                job.destination = destination_for(job)
+                job.status = "queued"
+                job.stage = ""
+                job.error = None
+                job.result = None
+                job.started = None
+                job.finished = None
+            # Queue what this run chose, not everything that happens to be
+            # sitting at "queued": an image added but never converted is at
+            # that status too, and must not ride along on someone else's
+            # selection.
             self._pending = [
-                identifier for identifier in self._order
-                if self._jobs[identifier].status == "queued"
+                identifier for identifier in self._order if identifier in chosen
             ]
             if not self._pending:
                 return

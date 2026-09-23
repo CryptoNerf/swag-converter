@@ -83,6 +83,8 @@ const state = {
   update: null,
   announced: null,
   updateTimer: null,
+  picked: new Set(),   // ids the user has ticked
+  anchor: null,        // for shift-click ranges
   thumbs: new Map(),
   timer: null,
   view: null,          // {id, name, svg, source, result}
@@ -266,13 +268,27 @@ function render() {
   $('batch').hidden = !state.busy;
   $('batch-fill').style.width = jobs.length ? (100 * finished / jobs.length) + '%' : '0';
 
-  // Nothing out of date means every result already matches these settings.
-  // The button then offers the only thing left worth doing: do it again.
-  state.again = jobs.length > 0 && state.outdated === 0;
+  // Forget ticks for images that are no longer in the list.
+  const present = new Set(jobs.map((j) => j.id));
+  for (const id of [...state.picked]) if (!present.has(id)) state.picked.delete(id);
+  const chosen = state.picked.size;
+
+  $('selbar').hidden = jobs.length === 0;
+  $('selcount').innerHTML = chosen ? `<b>${t('sel.count', { n: chosen })}</b>` : '';
+  $('sel-all').hidden = chosen === jobs.length;
+  $('sel-none').hidden = chosen === 0;
+  $('sel-hint').hidden = chosen > 0 || jobs.length === 0 || state.busy;
+  $('sel-hint').textContent = t('sel.hint');
+
+  // With a selection the button obeys it. Without one, nothing out of date
+  // means every result already matches these settings, and the only thing
+  // left worth offering is to do it over.
+  state.again = chosen === 0 && jobs.length > 0 && state.outdated === 0;
   $('convert').disabled = state.busy || jobs.length === 0;
   $('convert').textContent = state.busy
     ? t('bar.converting')
-    : t(state.again ? 'bar.convert.again' : 'bar.convert');
+    : chosen ? t('bar.convert.selected', { n: chosen })
+    : state.again ? t('bar.convert.again') : t('bar.convert');
   $('cancel').hidden = !state.busy;
   $('clear').hidden = !jobs.length || state.busy;
 }
@@ -281,12 +297,20 @@ function card(job) {
   const li = document.createElement('li');
   li.className = 'card' + (job.status === 'done' ? ' ready' : '') + (job.status === 'failed' ? ' failed' : '');
 
+  if (state.picked.has(job.id)) li.classList.add('picked');
+
   const shot = document.createElement('div');
   shot.className = 'shot';
   const img = document.createElement('img');
   img.alt = '';
   if (state.thumbs.has(job.id)) img.src = state.thumbs.get(job.id);
   shot.appendChild(img);
+
+  const tick = document.createElement('button');
+  tick.className = 'tick';
+  tick.title = t('sel.toggle');
+  tick.onclick = (e) => { e.stopPropagation(); pick(job.id, e.shiftKey); };
+  shot.appendChild(tick);
 
   if (job.status === 'running') {
     const scrim = document.createElement('div');
@@ -332,9 +356,43 @@ function card(job) {
     li.appendChild(kill);
   }
 
-  if (job.status === 'done') li.onclick = () => openViewer(job.id);
+  li.onclick = (e) => {
+    // Modifier-click picks; a plain click on a finished card still opens it,
+    // which is what someone reaching for a result expects.
+    if (e.metaKey || e.ctrlKey || e.shiftKey) { pick(job.id, e.shiftKey); return; }
+    if (job.status === 'done') openViewer(job.id);
+  };
   li.append(shot, meta);
   return li;
+}
+
+function pick(id, extend) {
+  if (extend && state.anchor) {
+    const ids = state.jobs.map((j) => j.id);
+    const from = ids.indexOf(state.anchor);
+    const to = ids.indexOf(id);
+    if (from !== -1 && to !== -1) {
+      const [a, b] = from < to ? [from, to] : [to, from];
+      for (const between of ids.slice(a, b + 1)) state.picked.add(between);
+      render();
+      return;
+    }
+  }
+  if (state.picked.has(id)) state.picked.delete(id);
+  else state.picked.add(id);
+  state.anchor = id;
+  render();
+}
+
+function pickAll() {
+  for (const job of state.jobs) state.picked.add(job.id);
+  render();
+}
+
+function pickNone() {
+  state.picked.clear();
+  state.anchor = null;
+  render();
 }
 
 function ring(fraction) {
@@ -602,10 +660,17 @@ function wire() {
   $('add').onclick = add;
   $('add-inline').onclick = add;
 
-  $('convert').onclick = async () =>
+  $('convert').onclick = async () => {
+    if (state.picked.size) return apply(await call('start', [...state.picked]));
     apply(await call(state.again ? 'convert_again' : 'start'));
+  };
+  $('sel-all').onclick = pickAll;
+  $('sel-none').onclick = pickNone;
   $('cancel').onclick = async () => apply(await call('cancel'));
-  $('clear').onclick = async () => { state.thumbs.clear(); apply(await call('clear_all')); };
+  $('clear').onclick = async () => {
+    state.thumbs.clear(); state.picked.clear(); state.anchor = null;
+    apply(await call('clear_all'));
+  };
 
   $('settings-toggle').onclick = (e) => {
     const shown = $('panel').hidden;
@@ -647,7 +712,11 @@ function wire() {
   }
 
   addEventListener('keydown', (e) => {
-    if ($('viewer').hidden) return;
+    if ($('viewer').hidden) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); pickAll(); }
+      else if (e.key === 'Escape' && state.picked.size) pickNone();
+      return;
+    }
     if (e.key === 'Escape') closeViewer();
     else if (e.key === 'ArrowLeft') step(-1);
     else if (e.key === 'ArrowRight') step(1);
