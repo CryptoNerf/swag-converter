@@ -1,0 +1,63 @@
+name: Tracing quality
+
+# Measures what the tracer produces, against a drawn corpus rather than
+# anyone's photographs, so the numbers are reproducible and nothing private
+# travels to a runner.  Runs on demand and on a tag; it is a measurement, not
+# a gate on every push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      record:
+        description: "Record a new baseline instead of comparing"
+        type: boolean
+        default: false
+      quality:
+        description: "Quality tier to measure"
+        type: choice
+        options: [fast, balanced, max]
+        default: balanced
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: macos-latest      # the baseline is recorded here; fonts must match
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: brew install cairo
+      - run: pip install -e '.[quality]'
+
+      - name: Trace the corpus
+        id: measure
+        run: |
+          quality="${{ inputs.quality || 'balanced' }}"
+          if [ "${{ inputs.record }}" = "true" ]; then
+            python benchmarks/run.py --quality "$quality" --record | tee report.txt
+          else
+            python benchmarks/run.py --quality "$quality" | tee report.txt
+          fi
+
+      - name: Put the table in the summary
+        if: always()
+        run: |
+          {
+            echo '## Tracing quality'
+            echo '```'
+            cat report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-report
+          path: |
+            report.txt
+            benchmarks/baseline.json

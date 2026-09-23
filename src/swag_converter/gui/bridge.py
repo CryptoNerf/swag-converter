@@ -297,7 +297,9 @@ class Bridge:
             "id": identifier,
             "name": job.name,
             "svg": destination.read_text(encoding="utf-8"),
-            "source": _data_url(job.source, limit=1400),
+            # At the size it was traced: the comparison is only honest if
+            # both halves show the same pixels the tracer saw.
+            "source": _data_url(job.source, limit=max(1400, _traced_edge(job))),
             "result": job.result,
         }
 
@@ -368,6 +370,11 @@ class Bridge:
             self._scratch.rmdir()
         except OSError:
             pass
+
+
+def _traced_edge(job: Any) -> int:
+    result = job.result or {}
+    return min(2600, max(int(result.get("width", 0)), int(result.get("height", 0))))
 
 
 def _rejected(name: str, reason: str) -> dict[str, Any]:

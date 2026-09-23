@@ -397,10 +397,13 @@ button[aria-pressed="true"].ghost { background: var(--accent); color: var(--acce
 }
 .vstage.panning { cursor: grabbing; }
 
-.vcanvas { position: relative; transform-origin: center center; will-change: transform; }
+.vcanvas { position: relative; flex: none; }
 .vlayer { position: absolute; inset: 0; width: 100%; height: 100%; }
 .vlayer svg { width: 100%; height: 100%; display: block; }
-#v-source { object-fit: contain; }
+/* The original is a raster and will soften as it is enlarged, which is the
+   honest thing for it to do; do not let the browser smooth it further than
+   the pixels warrant. */
+#v-source { object-fit: fill; image-rendering: auto; }
 
 /* In compare mode the vector is clipped to the right of the handle. */
 .vcanvas.wipe #v-vector { clip-path: inset(0 0 0 var(--split, 50%)); }

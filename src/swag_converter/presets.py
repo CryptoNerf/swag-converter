@@ -18,7 +18,11 @@ BASE: dict[str, Any] = {
     "aa_radius": 2.0,
     "alpha_floor": 0.25,
     "init_clusters": 40,
-    "min_region_px": 40,
+    # Small enough that the absorption pass decides what to keep by what it
+    # would cost to lose, rather than by a blunt size floor that takes an
+    # eyelash and a letter stroke along with the grain.
+    "min_region_px": 8,
+    "min_clusters": 10,
     "max_initial_regions": 420,
     "alpha_weight": 45.0,
     "alpha_residual_weight": 90.0,
@@ -42,7 +46,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "icon": {
         # Flat artwork: few colours, crisp edges worth preserving exactly.
         "init_clusters": 28,
-        "min_region_px": 32,
         "max_initial_regions": 800,
         "merge_tolerance": 0.8,
         "curve_tolerance": 0.35,
@@ -50,7 +53,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "illustration": {
         # Smooth shading: more clusters so gradients have material to merge.
         "init_clusters": 40,
-        "min_region_px": 40,
         "max_initial_regions": 1000,
         "merge_tolerance": 0.8,
         "curve_tolerance": 0.40,
@@ -63,7 +65,6 @@ PRESETS: dict[str, dict[str, Any]] = {
         # pass cannot tell a grain speck from an eyelash and took both.
         "denoise": 0,
         "init_clusters": 80,
-        "min_region_px": 28,
         "max_initial_regions": 1500,
         "min_regions": 60,
         "supersample": 3,
@@ -132,6 +133,24 @@ def build(preset: str, quality: str = "balanced", overrides: dict[str, Any] | No
     settings["quality"] = quality
     if overrides:
         settings.update({key: value for key, value in overrides.items() if value is not None})
+    return settings
+
+
+def adapt_to_content(settings: dict[str, Any], flatness: float) -> dict[str, Any]:
+    """Spend colour clusters on colour, not on anti-aliasing.
+
+    Every cluster beyond the colours an image actually holds lands on the
+    blend between two of them, and those blends are thin: they shatter a
+    letter into fragments that then absorb into the page, which is how body
+    copy came out as gibberish.  Flat artwork therefore wants far fewer
+    clusters than a photograph, and ``flatness`` already measures exactly
+    that — the share of the picture that is one solid colour.
+    """
+    settings = dict(settings)
+    share = min(1.0, max(0.0, float(flatness)))
+    clusters = int(settings.get("init_clusters", 40))
+    floor = int(settings.get("min_clusters", 10))
+    settings["init_clusters"] = max(floor, int(round(clusters * (1.0 - 0.62 * share))))
     return settings
 
 

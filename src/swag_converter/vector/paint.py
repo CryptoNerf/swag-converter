@@ -224,8 +224,15 @@ def fit_paint(
     alpha: np.ndarray,
     settings: dict[str, Any],
     seed: int = 0,
+    flat_only: bool = False,
 ) -> Paint:
-    """Pick the cheapest paint model that explains the region's pixels."""
+    """Pick the cheapest paint model that explains the region's pixels.
+
+    ``flat_only`` is for shapes that are all edge and no middle — a letter
+    stroke, a hairline.  There is no shading in them to find, so any ramp a
+    fit discovers is the anti-aliasing at their border, and painting that
+    ramp across the whole shape is what makes traced type look smudged.
+    """
     max_stops = int(settings.get("gradient_stops", 5))
     flat_tolerance = float(settings.get("flat_tolerance", 2.0))
     gradient_gain = float(settings.get("gradient_gain", 1.0))
@@ -243,7 +250,7 @@ def fit_paint(
         alpha, mean_alpha, alpha_weight
     )
     best = Paint(kind="flat", residual=flat_residual, color=mean_color, opacity=mean_alpha)
-    if flat_residual <= flat_tolerance or len(coords) < 16 or max_stops < 2:
+    if flat_only or flat_residual <= flat_tolerance or len(coords) < 16 or max_stops < 2:
         return best
 
 

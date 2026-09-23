@@ -287,6 +287,10 @@ def build_segmentation(rgba: np.ndarray, settings: dict[str, Any]) -> Segmentati
     # touching regions - so they would drive both run time and node count.
     # Pick the speck threshold straight from the size distribution so the
     # count lands under the cap in a single absorption pass.
+    components = _split_blend_components(
+        components, features, inside, scale, float(settings.get("blend_tolerance", 9.0))
+    )
+
     max_initial = max(16, int(settings.get("max_initial_regions", 420)))
     components = _absorb_small(components, features, inside, min_region, max_initial, hi_height, hi_width)
     # Specks absorb in chains, and a chain that grows past the floor stops
@@ -397,6 +401,113 @@ def _component_adjacency(
         graph.setdefault(a, set()).add(b)
         graph.setdefault(b, set()).add(a)
     return graph
+
+
+def _split_blend_components(
+    components: np.ndarray,
+    features: np.ndarray,
+    inside: np.ndarray,
+    scale: int,
+    tolerance: float,
+) -> np.ndarray:
+    """Give the anti-aliased border back to the shapes it came from.
+
+    Where two colours meet, the source holds a band of their blend.  Cluster
+    it and that band becomes regions of its own — a pale outline tracing
+    every letter, which is what makes traced type look soft however crisply
+    the curves are fitted.  Worse, the band is itself split into several
+    concentric slivers, so no single one of them touches solid colour on both
+    sides and they cannot be judged one at a time.
+
+    So they are judged together: everything without an interior of its own is
+    one network, and each of its pixels goes to whichever bordering solid
+    shape its own colour is nearest.  The boundary then lands where the blend
+    crosses halfway, which is where the eye already puts it.
+    """
+    flat = components.ravel()
+    inside_components = flat[inside]
+    top = int(inside_components.max()) + 1 if inside_components.size else 1
+    if top <= 1:
+        return components
+
+    counts = np.bincount(inside_components, minlength=top).astype(np.float64)
+    counts[counts == 0] = 1.0
+    means = np.stack(
+        [np.bincount(inside_components, weights=features[:, channel], minlength=top) / counts
+         for channel in range(features.shape[1])],
+        axis=1,
+    )
+
+    # A shape with an interior keeps pixels once the band along every border
+    # is taken away.  Erosion on a label image will not answer this — the
+    # minimum label in a neighbourhood says which label is smallest, not
+    # whether the neighbourhood is all one shape — so the borders are found
+    # by comparing neighbours directly, as _interior_mask does.
+    band = max(1, int(scale))
+    edges = np.zeros(components.shape, dtype=bool)
+    edges[:, :-1] |= components[:, :-1] != components[:, 1:]
+    edges[:, 1:] |= components[:, :-1] != components[:, 1:]
+    edges[:-1, :] |= components[:-1, :] != components[1:, :]
+    edges[1:, :] |= components[:-1, :] != components[1:, :]
+    interior = ~ndimage.binary_dilation(edges, iterations=band)
+    surviving = components[interior & (components > 0)]
+    solid = np.zeros(top, dtype=bool)
+    if surviving.size:
+        solid = np.bincount(surviving.ravel(), minlength=top) >= max(4, band * band)
+    solid[0] = False
+    if not solid.any():
+        return components
+
+    is_blend = (components > 0) & ~solid[components]
+    if not is_blend.any():
+        return components
+
+    # One network per run of touching blend pixels, so a chain of slivers is
+    # resolved against the solid colour at both ends of the chain rather than
+    # against the sliver next to it.
+    chains, chain_count = ndimage.label(is_blend)
+    if chain_count == 0:
+        return components
+
+    solid_labels = np.where(solid[components], components, 0)
+    reach = ndimage.grey_dilation(solid_labels, size=3)
+    borders = np.where(is_blend & (reach > 0), reach, 0)
+
+    result = components.copy()
+    flat_chains = chains.ravel()
+    flat_result = result.ravel()
+    flat_components = components.ravel()
+    order = np.argsort(flat_chains, kind="stable")
+    sorted_chains = flat_chains[order]
+    starts = np.searchsorted(sorted_chains, np.arange(1, chain_count + 1), side="left")
+    stops = np.searchsorted(sorted_chains, np.arange(1, chain_count + 1), side="right")
+
+    inside_index = np.full(flat.shape[0], -1, dtype=np.int64)
+    inside_index[np.flatnonzero(inside)] = np.arange(inside_components.shape[0])
+
+    for chain in range(chain_count):
+        pixels = order[starts[chain]:stops[chain]]
+        if pixels.size == 0:
+            continue
+        touching = np.unique(borders.ravel()[pixels])
+        touching = touching[touching > 0]
+        if touching.size < 2:
+            continue  # nothing to divide it between; leave it a shape
+        palette = means[touching]
+        rows = inside_index[pixels]
+        usable = rows >= 0
+        if not usable.any():
+            continue
+        colours = features[rows[usable]]
+        distance = np.linalg.norm(colours[:, None, :] - palette[None, :, :], axis=2)
+        nearest = touching[np.argmin(distance, axis=1)]
+        # Only where the pixel really is a blend of what it touches; a thin
+        # shape with a colour of its own keeps it.
+        closest = distance.min(axis=1)
+        keep = closest <= tolerance
+        chosen = np.where(keep, nearest, flat_components[pixels[usable]])
+        flat_result[pixels[usable]] = chosen
+    return result
 
 
 def _absorb_small(
@@ -580,7 +691,8 @@ def merge_regions(
         # Fit the colour on the region's own pixels, not on the blend with
         # its neighbours; fall back when a region is all edge and has no
         # interior left to speak of.
-        chosen = core if len(core) >= min_interior else pixels
+        solid = len(core) >= min_interior
+        chosen = core if solid else pixels
         # Narrow the index array first: gathering the whole union only to have
         # ``fit_paint`` discard all but a few thousand rows is what made the
         # merge loop quadratic in pixels rather than in edges.
@@ -593,6 +705,10 @@ def merge_regions(
             segmentation.alpha[chosen],
             settings,
             seed=seed,
+            # With no interior the only pixels left are the blend with the
+            # neighbours; a gradient fitted to those is the anti-aliasing,
+            # and smearing it across a letter is what blurs traced type.
+            flat_only=not solid,
         )
 
     for region in active.values():

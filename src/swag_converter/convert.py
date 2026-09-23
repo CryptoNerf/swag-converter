@@ -11,7 +11,7 @@ import numpy as np
 
 from .analyze import Analysis, analyze
 from .image import LoadedImage, load
-from .presets import adapt_to_size, build
+from .presets import adapt_to_content, adapt_to_size, build
 from .vector.render import render_svg_document
 from .vector.segment import build_segmentation, merge_regions
 
@@ -78,7 +78,11 @@ def convert(
     chosen = analysis.kind if preset == "auto" else preset
 
     settings = build(chosen, quality, overrides)
+    settings = adapt_to_content(settings, analysis.flatness)
     settings = adapt_to_size(settings, image.width, image.height)
+    if overrides:
+        # An explicit override outranks anything measured from the image.
+        settings.update({key: value for key, value in overrides.items() if value is not None})
 
     pixels = image.pixels
     if int(settings.get("denoise", 0)) > 1:

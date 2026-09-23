@@ -8,7 +8,6 @@
   "empty.or": "or",
   "empty.choose": "choose them",
   "empty.private": "— they never leave this machine.",
-  "set.preset": "What is it",
   "set.detail": "Detail — how much it draws",
   "set.input": "Input size — how much it sees",
   "set.input.hint": "The size the picture is scaled to before tracing starts. A larger one lets the tracer notice finer things; it does not on its own let it draw more — that is Detail above.",
@@ -119,5 +118,6 @@
   "sel.all": "Select all",
   "sel.none": "Clear selection",
   "sel.hint": "Tick images to convert just those. With none ticked, Convert runs whatever the settings have aged.",
-  "sel.toggle": "Select this image"
+  "sel.toggle": "Select this image",
+  "set.detected": "The tracer decides what kind of picture this is by measuring it, and traces accordingly."
 }

@@ -1,0 +1,67 @@
+{
+  "corpus": 1,
+  "quality": "balanced",
+  "platform": "darwin",
+  "rows": [
+    {
+      "name": "poster-text",
+      "preset": "icon",
+      "ssim": 0.9789,
+      "edges": 0.8856,
+      "regions": 792,
+      "nodes": 6787,
+      "kb": 138.0,
+      "seconds": 10.9
+    },
+    {
+      "name": "flat-shapes",
+      "preset": "icon",
+      "ssim": 0.9216,
+      "edges": 0.9329,
+      "regions": 7,
+      "nodes": 741,
+      "kb": 14.7,
+      "seconds": 1.0
+    },
+    {
+      "name": "shaded-orb",
+      "preset": "icon",
+      "ssim": 0.942,
+      "edges": 0.9151,
+      "regions": 3,
+      "nodes": 1295,
+      "kb": 25.0,
+      "seconds": 2.5
+    },
+    {
+      "name": "hairlines",
+      "preset": "photo",
+      "ssim": 0.8396,
+      "edges": 0.9394,
+      "regions": 26,
+      "nodes": 407,
+      "kb": 8.7,
+      "seconds": 1.1
+    },
+    {
+      "name": "texture",
+      "preset": "photo",
+      "ssim": 0.3238,
+      "edges": 0.42,
+      "regions": 746,
+      "nodes": 30088,
+      "kb": 698.1,
+      "seconds": 40.2
+    },
+    {
+      "name": "alpha-cutout",
+      "preset": "icon",
+      "ssim": 0.9947,
+      "edges": 0.9481,
+      "regions": 3,
+      "nodes": 794,
+      "kb": 16.1,
+      "seconds": 0.6
+    }
+  ]
+}

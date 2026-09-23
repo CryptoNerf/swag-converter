@@ -114,8 +114,6 @@ function drawSettings() {
   const s = state.info.settings;
   paintStrings();
 
-  buildCards($('presets'), state.info.presets, s.preset, (v) => pushSettings({ preset: v }));
-
   buildSeg($('quality'), state.info.qualities.map((q) => [q, t('quality.' + q)]), s.quality, (v) => {
     pushSettings({ quality: v });
     $('quality-hint').textContent = t('quality.' + v + '.note');
@@ -197,26 +195,6 @@ async function switchLanguage(code) {
   state.info.settings.language = code;
   await call('update_settings', { language: code });
   drawSettings();
-}
-
-function buildCards(host, values, chosen, onPick) {
-  host.innerHTML = '';
-  values.forEach((value, index) => {
-    const title = t('preset.' + value);
-    const note = t('preset.' + value + '.note');
-    const b = document.createElement('button');
-    b.className = 'pcard' + (index === 0 ? ' wide' : '');
-    b.innerHTML = `<b></b><span></span>`;
-    b.querySelector('b').textContent = title;
-    b.querySelector('span').textContent = note;
-    b.setAttribute('aria-pressed', value === chosen);
-    b.onclick = () => {
-      host.querySelectorAll('.pcard').forEach((o) => o.setAttribute('aria-pressed', 'false'));
-      b.setAttribute('aria-pressed', 'true');
-      onPick(value);
-    };
-    host.appendChild(b);
-  });
 }
 
 function buildSeg(host, pairs, chosen, onPick) {
@@ -542,18 +520,22 @@ function fit() {
   const stage = $('v-stage').getBoundingClientRect();
   const { w, h } = state.natural;
   if (!w || !h) return;
-  const scale = Math.min((stage.width - 48) / w, (stage.height - 48) / h, 4);
-  state.zoom = Math.max(0.05, scale);
+  state.zoom = Math.max(0.05, Math.min((stage.width - 48) / w, (stage.height - 48) / h, 4));
   state.pan = { x: 0, y: 0 };
-  const canvas = $('v-canvas');
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
   applyTransform();
 }
 
 function applyTransform() {
-  $('v-canvas').style.transform =
-    `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`;
+  // Lay the canvas out at its real size rather than scaling it with a
+  // transform. A transform rasterises the SVG once at its untransformed
+  // size and stretches the bitmap, which is why a zoomed vector looked
+  // softer here than the same file does in a design tool. Sizing the
+  // element makes the renderer draw the paths again at the size shown.
+  const { w, h } = state.natural;
+  const canvas = $('v-canvas');
+  canvas.style.width = Math.round(w * state.zoom) + 'px';
+  canvas.style.height = Math.round(h * state.zoom) + 'px';
+  canvas.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px)`;
   $('v-zoom').textContent = Math.round(state.zoom * 100) + '%';
 }
 
