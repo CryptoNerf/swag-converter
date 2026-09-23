@@ -25,6 +25,14 @@ def self_check() -> int:
     if missing:
         print(f"web assets missing from the bundle: {', '.join(missing)}", file=sys.stderr)
         return 1
+
+    from . import locales
+
+    languages = locales.codes()
+    if locales.FALLBACK not in languages:
+        # A bundle without its dictionaries renders every label as its key.
+        print("interface text missing from the bundle", file=sys.stderr)
+        return 1
     try:
         import webview  # noqa: F401
 
@@ -52,6 +60,7 @@ def self_check() -> int:
     print(f"ok — sw(a)g.converter {described['version']}, "
           f"{len(described['presets'])} presets, scoring {'on' if described['scoring'] else 'off'}, "
           f"{len(described['suffixes'])} formats, "
+          f"languages {'+'.join(languages)}, "
           f"converted a test image to {converted} shapes")
     return 0
 

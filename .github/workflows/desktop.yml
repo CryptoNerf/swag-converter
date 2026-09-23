@@ -48,6 +48,10 @@ jobs:
             *"scoring off"*)
               echo "::error::the bundle cannot render, so it cannot score"; exit 1;;
           esac
+          case "$reported" in
+            *"languages en+ru"*) ;;
+            *) echo "::error::the bundle is missing interface text"; exit 1;;
+          esac
           du -sh "$app"
 
       - name: Wrap it in a disk image

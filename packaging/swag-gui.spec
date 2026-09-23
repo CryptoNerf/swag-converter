@@ -50,6 +50,9 @@ hidden = [
 
 datas = [
     (str(ROOT / "src/swag_converter/gui/web"), "swag_converter/gui/web"),
+    # Without these the bundle has no interface text at all and every label
+    # renders as its own key.
+    (str(ROOT / "src/swag_converter/gui/locales"), "swag_converter/gui/locales"),
     *collect_data_files("cairosvg"),
     *collect_data_files("cairocffi"),
     # The package reads its own version from the installed distribution, so
